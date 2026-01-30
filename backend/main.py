@@ -1,9 +1,17 @@
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+    
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from conn_db import engine, Base
 from routers import vendor as vendor_router
 from routers import invoice as invoice_router
 from routers import auth as auth_router
+
 
 app = FastAPI(title="VeriPay API")
 

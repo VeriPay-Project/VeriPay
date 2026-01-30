@@ -13,231 +13,228 @@ from models.invoice import Invoice
 from models.analysis_result import AnalysisResult
 from models.vendor import Vendor
 from dependencies import get_db
-from services.analysis_service import run_ai_analysis
-from services.rules_service import run_rules_checks
 
+from services.invoice_analysis_service import analyze_invoice as run_full_analysis
 
-router = APIRouter(
-    prefix="/invoices",
-    tags=["Invoices"]
-)
+router = APIRouter(prefix="/invoices", tags=["Invoices"])
 
 ALLOWED_MIME_TYPES = {
     "application/pdf": "pdf",
     "image/png": "image",
     "image/jpeg": "image",
-    "image/jpg": "image"
+    "image/jpg": "image",
 }
 
 INVOICE_DIR = "invoices"
 os.makedirs(INVOICE_DIR, exist_ok=True)
+
 
 @router.get("/")
 def list_invoices(db: Session = Depends(get_db)):
     invoices = db.query(Invoice).order_by(Invoice.invoice_id.desc()).all()
     return [
         {
-            "invoice_id": invoice.invoice_id,
-            "status": invoice.status,
-            "file_hash": invoice.file_hash,
-            "is_signed": invoice.is_signed,
-            "crypto_valid": invoice.crypto_valid,
-            "signer_fingerprint": invoice.signer_fingerprint,
-            "created_at": invoice.created_at,
+            "invoice_id": i.invoice_id,
+            "status": i.status,
+            "file_hash": i.file_hash,
+            "is_signed": i.is_signed,
+            "crypto_valid": i.crypto_valid,
+            "signer_fingerprint": i.signer_fingerprint,
+            "created_at": i.created_at,
         }
-        for invoice in invoices
+        for i in invoices
     ]
 
 
 @router.post("/upload")
 async def upload_invoice(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    force_recheck: bool = False,
+    db: Session = Depends(get_db),
 ):
-    # 1️⃣ Basic sanity check
     if not file.filename:
         raise HTTPException(status_code=400, detail="File must have a name")
 
-    # 2️⃣ MIME validation
-    content_type = file.content_type
-    if content_type not in ALLOWED_MIME_TYPES:
+    if file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
-    file_category = ALLOWED_MIME_TYPES[content_type]
-
-    # 3️⃣ Extension check
+    file_type = ALLOWED_MIME_TYPES[file.content_type]
     extension = os.path.splitext(file.filename)[1].lower()
-    if file_category == "pdf" and extension != ".pdf":
-        raise HTTPException(status_code=400, detail="Expected PDF")
 
-    if file_category == "image" and extension not in [".png", ".jpg", ".jpeg"]:
-        raise HTTPException(status_code=400, detail="Expected image")
-
-    # 4️⃣ Read file bytes
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    # 🔐 STEP 1 — Compute SHA-256 (duplicate detection)
     file_hash = compute_sha256(contents)
 
-    existing = db.query(Invoice).filter(
-        Invoice.file_hash == file_hash
-    ).first()
+    # 🔍 Check duplicate
+    existing_invoice = (
+        db.query(Invoice).filter(Invoice.file_hash == file_hash).first()
+    )
 
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail="Duplicate invoice detected"
+    # ✅ DUPLICATE + NO FORCE → return existing
+    if existing_invoice and not force_recheck:
+        previous = (
+            db.query(AnalysisResult)
+            .filter(AnalysisResult.invoice_id == existing_invoice.invoice_id)
+            .first()
         )
 
-    # 5️⃣ Persist file
-    safe_filename = f"{uuid.uuid4()}{extension}"
-    file_path = os.path.join(INVOICE_DIR, safe_filename)
+        return {
+            "status": "duplicate",
+            "invoice_id": existing_invoice.invoice_id,
+            "file_hash": existing_invoice.file_hash,
+            "previous_result": {
+                "crypto": previous.crypto_json if previous else None,
+                "semantic": previous.semantic_json if previous else None,
+                "rules": previous.rules_json if previous else None,
+                "ai": previous.ai_json if previous else None,
+            } if previous else None,
+        }
 
-    with open(file_path, "wb") as f:
-        f.write(contents)
-
-    # 6️⃣ Extract content (used later by AI, not crypto)
-    if file_category == "pdf":
-        _ = extract_pdf_content(file_path)
+    # ✅ DUPLICATE + FORCE → reuse invoice
+    if existing_invoice:
+        invoice = existing_invoice
+        file_path = invoice.file_path
     else:
-        _ = extract_image_content(file_path)
+        # 🆕 New invoice
+        safe_filename = f"{uuid.uuid4()}{extension}"
+        file_path = os.path.join(INVOICE_DIR, safe_filename)
 
-    # 🔐 STEP 2 — Cryptographic integrity evaluation
-    crypto_raw = await evaluate_integrity(
-        file_path=file_path,
-        file_type=file_category
-    )
+        with open(file_path, "wb") as f:
+            f.write(contents)
 
-    # 🔐 STEP 3 — Vendor cryptographic identity binding (fingerprint-based)
-    vendor = None
-    fingerprint = crypto_raw.get("signer_fingerprint")
+        if file_type == "pdf":
+            extract_pdf_content(file_path)
+        else:
+            extract_image_content(file_path)
 
-    if fingerprint:
-        vendor = db.query(Vendor).filter(
-            Vendor.public_key_fingerprint == fingerprint
-        ).first()
+        crypto_raw = await evaluate_integrity(file_path, file_type)
 
-    vendor_result = verify_vendor_identity(
-    signature_integrity=crypto_raw["signature_integrity"],
-    certificate_trust=crypto_raw["certificate_trust"],
-    signer_fingerprint=fingerprint,
-    vendor=vendor
-    )
+        fingerprint = crypto_raw.get("signer_fingerprint")
+        vendor = (
+            db.query(Vendor)
+            .filter(Vendor.public_key_fingerprint == fingerprint)
+            .first()
+            if fingerprint
+            else None
+        )
 
-    crypto = {
-        **crypto_raw,
-        **vendor_result
-    }
+        crypto = {
+            **crypto_raw,
+            **verify_vendor_identity(
+                crypto_raw["signature_integrity"],
+                crypto_raw["certificate_trust"],
+                fingerprint,
+                vendor,
+            ),
+        }
 
-    # 8️⃣ Persist invoice record
-    invoice = Invoice(
-        file_path=file_path,
-        file_hash=file_hash,
-        is_signed=crypto["signature_present"],
-        crypto_valid=(crypto["signature_integrity"] == "valid"),
-        signer_fingerprint=fingerprint,
-        status="uploaded"
-    )
+        invoice = Invoice(
+            file_path=file_path,
+            file_hash=file_hash,
+            is_signed=crypto["signature_present"],
+            crypto_valid=(crypto["signature_integrity"] == "valid"),
+            signer_fingerprint=fingerprint,
+            status="uploaded",
+        )
 
-    db.add(invoice)
-    db.commit()
-    db.refresh(invoice)
+        db.add(invoice)
+        db.commit()
+        db.refresh(invoice)
 
-    # 9️⃣ Final response (clean, minimal, AI-ready)
     return {
         "status": "stored",
         "invoice_id": invoice.invoice_id,
-        "file_hash": file_hash,
-        "file_type": file_category,
-        "crypto": crypto
+        "file_hash": invoice.file_hash,
     }
 
 
 @router.post("/{invoice_id}/analyze")
 async def analyze_invoice(
     invoice_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    invoice = db.query(Invoice).filter(Invoice.invoice_id == invoice_id).first()
+    invoice = db.query(Invoice).filter_by(invoice_id=invoice_id).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
     file_path = invoice.file_path
-    extension = os.path.splitext(file_path)[1].lower()
-    file_type = "pdf" if extension == ".pdf" else "image"
+    file_type = "pdf" if file_path.endswith(".pdf") else "image"
 
-    crypto_raw = await evaluate_integrity(
-        file_path=file_path,
-        file_type=file_type
-    )
+    crypto_raw = await evaluate_integrity(file_path, file_type)
 
-    vendor = None
     fingerprint = crypto_raw.get("signer_fingerprint")
-
-    if fingerprint:
-        vendor = db.query(Vendor).filter(
-            Vendor.public_key_fingerprint == fingerprint
-        ).first()
-
-    vendor_result = verify_vendor_identity(
-        signature_integrity=crypto_raw["signature_integrity"],
-        certificate_trust=crypto_raw["certificate_trust"],
-        signer_fingerprint=fingerprint,
-        vendor=vendor
+    vendor = (
+        db.query(Vendor)
+        .filter(Vendor.public_key_fingerprint == fingerprint)
+        .first()
+        if fingerprint
+        else None
     )
 
     crypto = {
         **crypto_raw,
-        **vendor_result
+        **verify_vendor_identity(
+            crypto_raw["signature_integrity"],
+            crypto_raw["certificate_trust"],
+            fingerprint,
+            vendor,
+        ),
     }
 
-    ai_result = None
-    if file_type == "pdf":
-        ai_result = run_ai_analysis(file_path)
-        rules_result = run_rules_checks(file_path)
-    else:
-        ai_result = {
-            "status": "not_supported",
-            "message": "AI analysis is only available for PDF invoices."
+    analysis_payload = (
+        run_full_analysis(file_path)
+        if file_type == "pdf"
+        else {
+            "semantic_fields": None,
+            "rule_based_checks": {"status": "not_supported"},
+            "ai_anomaly_analysis": {"status": "not_supported"},
         }
-        rules_result = {
-            "status": "not_supported",
-            "message": "Rules analysis is only available for PDF invoices."
-        }
+    )
 
+    ai = analysis_payload.get("ai_anomaly_analysis", {})
     prediction = -1
     confidence = 0.0
-    model_version = "layoutlmv3-isolation-forest"
 
-    if ai_result.get("status") == "ok":
-        risk = ai_result.get("risk_level")
-        if risk == "LOW":
-            prediction = 0
-        elif risk == "MEDIUM":
-            prediction = 1
-        elif risk == "HIGH":
-            prediction = 2
-        confidence = float(ai_result.get("anomaly_score") or confidence)
+    if ai.get("status") == "ok":
+        prediction = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}.get(ai["risk_level"], -1)
+        confidence = float(ai.get("anomaly_score", 0.0))
 
-    analysis = AnalysisResult(
-        invoice_id=invoice.invoice_id,
-        prediction=prediction,
-        confidence=confidence,
-        model_version=model_version,
-        crypto_json=crypto,
-        ai_json=ai_result,
-        rules_json=rules_result
+    # 🔁 OVERWRITE OR INSERT analysis
+    existing_analysis = (
+        db.query(AnalysisResult)
+        .filter(AnalysisResult.invoice_id == invoice.invoice_id)
+        .first()
     )
-    db.add(analysis)
+
+    if existing_analysis:
+        existing_analysis.crypto_json = crypto
+        existing_analysis.semantic_json = analysis_payload.get("semantic_fields")
+        existing_analysis.rules_json = analysis_payload.get("rule_based_checks")
+        existing_analysis.ai_json = ai
+        existing_analysis.prediction = prediction
+        existing_analysis.confidence = confidence
+    else:
+        db.add(
+            AnalysisResult(
+                invoice_id=invoice.invoice_id,
+                crypto_json=crypto,
+                semantic_json=analysis_payload.get("semantic_fields"),
+                rules_json=analysis_payload.get("rule_based_checks"),
+                ai_json=ai,
+                prediction=prediction,
+                confidence=confidence,
+                model_version="semantic+rules+ai",
+            )
+        )
+
     db.commit()
-    db.refresh(analysis)
 
     return {
         "invoice_id": invoice.invoice_id,
-        "file_type": file_type,
         "crypto": crypto,
-        "ai": ai_result,
-        "rules": rules_result
+        "semantic": analysis_payload.get("semantic_fields"),
+        "rules": analysis_payload.get("rule_based_checks"),
+        "ai": ai,
     }

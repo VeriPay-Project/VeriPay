@@ -1,23 +1,52 @@
+# =========================
 # Python
-venv/
+# =========================
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
+venv/
+.venv/
+backend/.venv/
+
+# =========================
 # Node / Next.js
+# =========================
 node_modules/
 .next/
 out/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
+# =========================
 # Environment variables
+# =========================
 .env
 backend/.env
 
-#  my local files
+# =========================
+# Runtime / generated data
+# =========================
+backend/invoices/
+backend/db/
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Editor / tooling
+# =========================
+.cursor/
+.vscode/
+
+# =========================
+# Personal / local
+# =========================
 todo.txt

@@ -3,8 +3,10 @@ import pickle
 from pathlib import Path
 import sys
 import shutil
-
 import numpy as np
+
+from utils.poppler import ensure_poppler_available
+
 
 AI_PIPELINE_DIR = Path(__file__).resolve().parents[2] / "ai_pipeline"
 MODEL_PATH = AI_PIPELINE_DIR / "saved_models" / "anomaly_model.pkl"
@@ -19,19 +21,21 @@ def run_ai_analysis(invoice_path: str) -> dict:
     if not tesseract_path:
         return {
             "status": "error",
-            "message": "Tesseract OCR is not installed. Run: brew install tesseract"
+            "message": "Tesseract OCR is not installed"
         }
 
-    if not shutil.which("pdftoppm"):
+    try:
+        ensure_poppler_available()
+    except RuntimeError as exc:
         return {
             "status": "error",
-            "message": "Poppler is not installed. Run: brew install poppler"
+            "message": str(exc)
         }
 
     if not MODEL_PATH.exists() or not STATS_PATH.exists():
         return {
             "status": "error",
-            "message": "AI model files are missing. Train or copy saved_models first."
+            "message": "AI model files are missing"
         }
 
     import pytesseract
@@ -69,18 +73,14 @@ def run_ai_analysis(invoice_path: str) -> dict:
 
     risk, review_required = interpret_risk(normalized_score)
 
-    if distance_z >= 2.5:
-        risk = "HIGH"
-        review_required = True
-
     explanations = generate_explanations(distance_z, normalized_score)
 
     return {
         "status": "ok",
-        "anomaly_score": float(round(normalized_score, 3)),
+        "anomaly_score": round(float(normalized_score), 3),
         "risk_level": risk,
         "review_required": review_required,
-        "embedding_distance": float(round(distance, 2)),
-        "distance_z_score": float(round(distance_z, 2)),
+        "embedding_distance": round(distance, 2),
+        "distance_z_score": round(distance_z, 2),
         "explanations": explanations
     }

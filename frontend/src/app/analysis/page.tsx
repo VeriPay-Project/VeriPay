@@ -9,16 +9,13 @@ const API_BASE =
 type InvoiceSummary = {
   invoice_id: number;
   status: string;
-  file_hash: string;
-  is_signed: boolean;
-  crypto_valid: boolean | null;
-  signer_fingerprint: string | null;
   created_at: string;
 };
 
 type AnalysisResult = {
   invoice_id: number;
   file_type: string;
+
   crypto: {
     signature_present: boolean;
     signature_integrity: string;
@@ -27,6 +24,7 @@ type AnalysisResult = {
     vendor_status?: string;
     signer_identity?: string;
   };
+
   ai: {
     status: string;
     message?: string;
@@ -37,12 +35,22 @@ type AnalysisResult = {
     distance_z_score?: number;
     explanations?: string[];
   };
+
+  semantic: {
+    invoice_number?: string | null;
+    vendor_name?: string | null;
+    customer_name?: string | null;
+    invoice_date?: string | null;
+    subtotal?: number | null;
+    tax?: number | null;
+    total?: number | null;
+    currency?: string | null;
+  } | null;
+
   rules: {
     status: string;
-    message?: string;
     word_count?: number;
     font_count?: number;
-    fonts?: string[];
     line_item_count?: number;
     line_item_sum?: number | null;
     subtotal?: number | null;
@@ -60,77 +68,51 @@ type AnalysisResult = {
 export default function AnalysisPage() {
   const searchParams = useSearchParams();
   const presetId = searchParams.get("invoiceId");
-  const autoRun = searchParams.get("run") === "1";
 
   const [invoices, setInvoices] = useState<InvoiceSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<string>(presetId ?? "");
+  const [selectedId, setSelectedId] = useState(presetId ?? "");
   const [status, setStatus] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [autoRunTriggered, setAutoRunTriggered] = useState(false);
 
-  const canAnalyze = useMemo(() => selectedId.trim().length > 0, [selectedId]);
+  const canAnalyze = useMemo(
+    () => selectedId.trim().length > 0,
+    [selectedId]
+  );
 
   useEffect(() => {
-    const loadInvoices = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/invoices/`);
-        if (!response.ok) {
-          throw new Error("Unable to load invoices");
-        }
-        const data = (await response.json()) as InvoiceSummary[];
-        setInvoices(data);
-      } catch (_error) {
-        setStatus("Unable to fetch invoices from the API.");
-      }
-    };
-
-    loadInvoices();
+    fetch(`${API_BASE}/invoices/`)
+      .then((r) => r.json())
+      .then(setInvoices)
+      .catch(() => setStatus("Unable to fetch invoices"));
   }, []);
 
-  useEffect(() => {
-    if (!presetId) {
-      return;
-    }
-    setSelectedId(presetId);
-  }, [presetId]);
-
-  useEffect(() => {
-    if (!autoRun || autoRunTriggered || !selectedId) {
-      return;
-    }
-    setAutoRunTriggered(true);
-    handleAnalyze();
-  }, [autoRun, autoRunTriggered, selectedId]);
-
   const handleAnalyze = async () => {
-    if (!canAnalyze) {
-      setStatus("Select or enter an invoice ID to analyze.");
-      return;
-    }
+    if (!canAnalyze) return;
 
     try {
       setStatus("Running analysis...");
       setResult(null);
+
       const response = await fetch(
         `${API_BASE}/invoices/${selectedId}/analyze`,
         { method: "POST" }
       );
-      const data = (await response.json()) as AnalysisResult;
 
+      const data = await response.json();
       if (!response.ok) {
-        setStatus(data?.ai?.message ?? "Analysis failed.");
+        setStatus("Analysis failed.");
         return;
       }
 
       setResult(data);
       setStatus("Analysis complete.");
-    } catch (_error) {
+    } catch {
       setStatus("Unable to reach the API.");
     }
   };
 
   return (
-    <main className="page">
+     <main className="page">
       <section className="panel">
         <span className="tag">Analysis</span>
         <h1 className="title">Analyze uploaded invoices.</h1>
@@ -177,38 +159,27 @@ export default function AnalysisPage() {
         {status ? <p className="status">{status}</p> : null}
       </section>
 
-      {result ? (
+      {result && (
         <section className="grid analysis-grid">
+          {/* 🔐 CRYPTO */}
           <article className="card">
             <h3>Cryptographic verification</h3>
-            <div className="analysis-list">
-              <div>
-                <p className="metric-label">Signature present</p>
-                <p className="metric-value">
-                  {String(result.crypto.signature_present)}
-                </p>
-              </div>
-              <div>
-                <p className="metric-label">Signature integrity</p>
-                <p className="metric-value">{result.crypto.signature_integrity}</p>
-              </div>
-              <div>
-                <p className="metric-label">Certificate trust</p>
-                <p className="metric-value">{result.crypto.certificate_trust}</p>
-              </div>
-            </div>
-            {result.crypto.signer_fingerprint ? (
-              <div className="upload-meta">
-                <p className="metric-label">Signer fingerprint</p>
-                <p className="mono">{result.crypto.signer_fingerprint}</p>
-              </div>
-            ) : null}
+            <p>Signature present: {String(result.crypto.signature_present)}</p>
+            <p>Signature integrity: {result.crypto.signature_integrity}</p>
+            <p>Certificate trust: {result.crypto.certificate_trust}</p>
+            {result.crypto.signer_fingerprint && (
+              <p className="mono">{result.crypto.signer_fingerprint}</p>
+            )}
           </article>
 
+          {/* 🤖 AI ANOMALY — UNCHANGED */}
           <article className="card">
             <h3>AI anomaly analysis</h3>
+
             {result.ai.status !== "ok" ? (
-              <p className="status">{result.ai.message ?? "AI analysis unavailable."}</p>
+              <p className="status">
+                {result.ai.message ?? "AI analysis unavailable."}
+              </p>
             ) : (
               <div className="analysis-list">
                 <div>
@@ -221,18 +192,25 @@ export default function AnalysisPage() {
                 </div>
                 <div>
                   <p className="metric-label">Review required</p>
-                  <p className="metric-value">{String(result.ai.review_required)}</p>
+                  <p className="metric-value">
+                    {String(result.ai.review_required)}
+                  </p>
                 </div>
                 <div>
                   <p className="metric-label">Embedding distance</p>
-                  <p className="metric-value">{result.ai.embedding_distance}</p>
+                  <p className="metric-value">
+                    {result.ai.embedding_distance}
+                  </p>
                 </div>
                 <div>
                   <p className="metric-label">Distance z-score</p>
-                  <p className="metric-value">{result.ai.distance_z_score}</p>
+                  <p className="metric-value">
+                    {result.ai.distance_z_score}
+                  </p>
                 </div>
               </div>
             )}
+
             {result.ai.explanations?.length ? (
               <ul className="analysis-notes">
                 {result.ai.explanations.map((note, idx) => (
@@ -242,48 +220,41 @@ export default function AnalysisPage() {
             ) : null}
           </article>
 
+          {/* 🧠 SEMANTIC EXTRACTION */}
+          <article className="card">
+            <h3>Semantic extraction (LLM)</h3>
+
+            {!result.semantic ? (
+              <p className="status">No semantic data extracted</p>
+            ) : (
+              <div className="analysis-list">
+                <p>Invoice #: {result.semantic.invoice_number ?? "N/A"}</p>
+                <p>Vendor: {result.semantic.vendor_name ?? "N/A"}</p>
+                <p>Customer: {result.semantic.customer_name ?? "N/A"}</p>
+                <p>Date: {result.semantic.invoice_date ?? "N/A"}</p>
+                <p>Subtotal: {result.semantic.subtotal ?? "N/A"}</p>
+                <p>Tax: {result.semantic.tax ?? "N/A"}</p>
+                <p>Total: {result.semantic.total ?? "N/A"}</p>
+                <p>Currency: {result.semantic.currency ?? "N/A"}</p>
+              </div>
+            )}
+          </article>
+
+          {/* 📐 RULE-BASED CHECKS */}
           <article className="card">
             <h3>Rule-based checks</h3>
-            {result.rules.status !== "ok" ? (
-              <p className="status">
-                {result.rules.message ?? `Rules status: ${result.rules.status}`}
-              </p>
-            ) : null}
+
             <div className="analysis-list">
-              <div>
-                <p className="metric-label">Word count</p>
-                <p className="metric-value">{result.rules.word_count ?? "N/A"}</p>
-              </div>
-              <div>
-                <p className="metric-label">Font count</p>
-                <p className="metric-value">{result.rules.font_count ?? "N/A"}</p>
-              </div>
-              <div>
-                <p className="metric-label">Line items</p>
-                <p className="metric-value">
-                  {result.rules.line_item_count ?? "N/A"}
-                </p>
-              </div>
-              <div>
-                <p className="metric-label">Line item sum</p>
-                <p className="metric-value">
-                  {result.rules.line_item_sum ?? "N/A"}
-                </p>
-              </div>
-              <div>
-                <p className="metric-label">Subtotal</p>
-                <p className="metric-value">{result.rules.subtotal ?? "N/A"}</p>
-              </div>
-              <div>
-                <p className="metric-label">Tax</p>
-                <p className="metric-value">{result.rules.tax ?? "N/A"}</p>
-              </div>
-              <div>
-                <p className="metric-label">Total</p>
-                <p className="metric-value">{result.rules.total ?? "N/A"}</p>
-              </div>
+              <p>Word count: {result.rules.word_count ?? "N/A"}</p>
+              <p>Font count: {result.rules.font_count ?? "N/A"}</p>
+              <p>Line items: {result.rules.line_item_count ?? "N/A"}</p>
+              <p>Line item sum: {result.rules.line_item_sum ?? "N/A"}</p>
+              <p>Subtotal: {result.rules.subtotal ?? "N/A"}</p>
+              <p>Tax: {result.rules.tax ?? "N/A"}</p>
+              <p>Total: {result.rules.total ?? "N/A"}</p>
             </div>
-            {result.rules.checks ? (
+
+            {result.rules.checks && (
               <ul className="analysis-notes">
                 <li>
                   Subtotal vs items:{" "}
@@ -300,10 +271,10 @@ export default function AnalysisPage() {
                   Total delta: {result.rules.checks.total_delta ?? "N/A"}
                 </li>
               </ul>
-            ) : null}
+            )}
           </article>
         </section>
-      ) : null}
+      )}
 
       <p className="hint">
         API endpoint: <span className="mono">{API_BASE}</span>

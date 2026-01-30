@@ -15,3 +15,4 @@ class AnalysisResult(Base):
     crypto_json = Column(JSON, nullable=False)
     ai_json = Column(JSON, nullable=False)
     rules_json = Column(JSON, nullable=False)
+    semantic_json = Column(JSON, nullable=True)
