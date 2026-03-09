@@ -16,9 +16,14 @@ DATABASE_URL = (
     f"{os.getenv('DB_NAME')}"
 )
 
+db_sslmode = os.getenv("DB_SSLMODE", "require")
+connect_args = {}
+if db_sslmode:
+    connect_args["sslmode"] = db_sslmode
+
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"sslmode": "require"}
+    connect_args=connect_args
 )
 
 SessionLocal = sessionmaker(

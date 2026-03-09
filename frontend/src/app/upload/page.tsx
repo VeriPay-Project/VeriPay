@@ -105,7 +105,7 @@ export default function UploadPage() {
           fileName: selectedFile.name,
         })
       } else {
-        alert("Upload failed.")
+        alert(`Upload failed: ${xhr.responseText}`)
       }
     }
 

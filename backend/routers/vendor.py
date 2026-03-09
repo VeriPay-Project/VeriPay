@@ -6,6 +6,8 @@ import hashlib
 from cryptography.hazmat.primitives import serialization
 
 from models.vendor import Vendor
+from models.vendor_bank_binding import VendorBankBinding
+from utils.bank_hashing import prepare_account_for_storage
 from dependencies import get_db
 from dependencies import get_current_user
 from models.user import User
@@ -60,4 +62,58 @@ async def register_vendor(
         "vendor_id": vendor.vendor_id,
         "vendor_name": vendor.vendor_name,
         "status": vendor.status
+    }
+
+
+@router.post("/{vendor_id}/bank-binding")
+def register_vendor_bank_binding(
+    vendor_id: int,
+    payload: dict,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    vendor = db.query(Vendor).filter(
+        Vendor.vendor_id == vendor_id
+    ).first()
+
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    account_identifier = payload.get("account_identifier")
+    if not account_identifier:
+        raise HTTPException(status_code=400, detail="account_identifier is required")
+
+    prepared = prepare_account_for_storage(account_identifier)
+    if not prepared.get("hash"):
+        raise HTTPException(status_code=400, detail="Invalid account identifier")
+
+    existing = db.query(VendorBankBinding).filter(
+        VendorBankBinding.vendor_id == vendor_id,
+        VendorBankBinding.account_hash == prepared["hash"]
+    ).first()
+
+    if existing:
+        return {"status": "already_registered"}
+
+    binding = VendorBankBinding(
+        vendor_id=vendor_id,
+        account_hash=prepared["hash"],
+        account_masked=prepared["masked"],
+        bank_name=payload.get("bank_name"),
+        account_type=payload.get("account_type"),
+        currency=payload.get("currency"),
+        country=payload.get("country"),
+        account_holder_name=payload.get("account_holder_name"),
+        verification_status="verified",
+        is_active=True
+    )
+
+    db.add(binding)
+    db.commit()
+    db.refresh(binding)
+
+    return {
+        "status": "registered",
+        "vendor_id": vendor_id,
+        "masked_account": prepared["masked"]
     }
