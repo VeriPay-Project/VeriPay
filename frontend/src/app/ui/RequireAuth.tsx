@@ -12,7 +12,7 @@ export default function RequireAuth({
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const publicRoutes = ["/", "/login", "/register"];
+  const publicRoutes = ["/", "/login", "/register", "/forgot-password"];
 
   const isPublicRoute = publicRoutes.includes(pathname);
 

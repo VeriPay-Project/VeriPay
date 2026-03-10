@@ -13,8 +13,9 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Bell, LogOut, Search, Settings, User, Moon, Sun } from "lucide-react"
+import { Bell, LogOut, Search, User, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
+import { link } from "fs"
 
 const API_BASE =
     process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
@@ -87,7 +88,7 @@ export default function Header() {
                     <nav className="hidden items-center gap-1 md:flex">
                         <Link href="/dashboard">
                             <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-                                Overview
+                                Dashboard
                             </Button>
                         </Link>
                         <Link href="/upload">
@@ -127,12 +128,14 @@ export default function Header() {
                             </div>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem>
-                                <User className="mr-2 h-4 w-4" />
-                                Profile
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                                <Settings className="mr-2 h-4 w-4" />
-                                Settings
+                                <Link
+                                    href="/profile"
+                                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors"
+                                >
+                                    <User className="mr-2 h-4 w-4" />
+                                    Profile
+                                </Link>
+
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

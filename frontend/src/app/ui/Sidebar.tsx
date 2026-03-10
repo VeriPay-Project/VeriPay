@@ -4,18 +4,20 @@ import { useAuth } from "../context/AuthContext"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import Image from "next/image"
 import {
     LayoutDashboard,
     Upload,
     BarChart3,
-    Shield,
-    Settings,
+    ShieldCheck,
+    User,
 } from "lucide-react"
 
 const appNavItems = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/upload", label: "Upload invoices", icon: Upload },
     { href: "/analysis", label: "Analysis", icon: BarChart3 },
+    { href: "/about", label: "About", icon: ShieldCheck },
 ]
 
 const authNavItems = [
@@ -30,19 +32,30 @@ export default function Sidebar() {
     return (
         <aside className="sticky top-6 flex h-[calc(100vh-3rem)] w-[260px] shrink-0 flex-col rounded-2xl bg-card/70 shadow-md backdrop-blur-md">
             {/* Brand */}
-            <div className="flex items-center gap-3 px-5 pt-6 pb-2">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
-                    <Shield className="h-5 w-5 text-primary-foreground" />
+            <Link
+                href="/"
+                className="flex items-center justify-center pt-6"
+            >
+                <div className="flex justify-center">
+                    <Image
+                        src="/veripay-logo-light.png"
+                        alt="VeriPay Logo"
+                        width={220}
+                        height={70}
+                        priority
+                        className="block dark:hidden"
+                    />
+                    <Image
+                        src="/veripay-logo-dark.png"
+                        alt="VeriPay Logo"
+                        width={220}
+                        height={70}
+                        priority
+                        className="hidden dark:block"
+                    />
                 </div>
-                <div>
-                    <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-                        VeriPay
-                    </p>
-                    <p className="text-sm font-semibold text-foreground">
-                        Verification
-                    </p>
-                </div>
-            </div>
+            </Link>
+
 
             {/* Navigation */}
             <nav className="mt-6 flex flex-1 flex-col gap-1 px-3">
@@ -89,11 +102,11 @@ export default function Sidebar() {
             {user && (
                 <div className="border-t border-border/30 px-3 py-4">
                     <Link
-                        href="/settings"
+                        href="/profile"
                         className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     >
-                        <Settings className="h-4 w-4" />
-                        Settings
+                        <User className="h-4 w-4" />
+                        Profile
                     </Link>
                 </div>
             )}

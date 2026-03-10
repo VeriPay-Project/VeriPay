@@ -6,6 +6,7 @@ import AppShell from "./ui/AppShell";
 import { AuthProvider } from "./context/AuthContext";
 import RequireAuth from "./ui/RequireAuth";
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/toaster"
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-sans",
@@ -47,6 +48,7 @@ export default function RootLayout({
             </AppShell>
           </AuthProvider>
         </ThemeProvider>
+        <Toaster />
       </body>
     </html>
   );

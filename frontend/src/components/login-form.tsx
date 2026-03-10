@@ -4,10 +4,11 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/app/context/AuthContext"
 
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Check } from "lucide-react"
+import { Check, Eye, EyeOff } from "lucide-react"
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
@@ -18,6 +19,7 @@ export function LoginForm() {
   const [status, setStatus] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   const router = useRouter()
   const { refresh } = useAuth()
@@ -66,9 +68,8 @@ export function LoginForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className={`space-y-4 transition-all ${
-        success ? "auth-success" : ""
-      }`}
+      className={`space-y-4 transition-all ${success ? "auth-success" : ""
+        }`}
     >
       <div className="space-y-1.5">
         <Label>Email</Label>
@@ -84,15 +85,40 @@ export function LoginForm() {
 
       <div className="space-y-1.5">
         <Label>Password</Label>
-        <Input
-          type="password"
-          placeholder="••••••••"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          disabled={success}
-        />
+
+        <div className="relative">
+          <Input
+            type={showPassword ? "text" : "password"}
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            disabled={success}
+          />
+
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+          >
+            {showPassword ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+          </button>
+        </div>
       </div>
+
+      <div className="flex justify-end">
+        <Link
+          href="/forgot-password"
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Forgot password?
+        </Link>
+      </div>
+
 
       <Button
         type="submit"
