@@ -1,0 +1,23 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from dependencies import get_db, get_current_user
+from models.invoice import Invoice
+from models.vendor import Vendor
+
+router = APIRouter(
+    prefix="/stats",
+    tags=["Stats"]
+)
+
+@router.get("/landing")
+def landing_stats(
+    db: Session = Depends(get_db)
+):
+    total_invoices = db.query(Invoice).count()
+    total_vendors = db.query(Vendor).count()
+
+    return {
+        "total_invoices": total_invoices,
+        "total_vendors": total_vendors,
+        "fraud_signals": 0  # temporary
+    }
