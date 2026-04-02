@@ -3,10 +3,10 @@ import { Card, CardContent } from "@/components/ui/card"
 
 type VendorPaymentCardProps = {
   vendor_bank?: {
-    bank_account_detected?: boolean
-    status?: string
-    verification_status?: string
-    vendor_identity_status?: string
+    bank_account_detected?: boolean | null
+    status?: string | null
+    verification_status?: string | null
+    vendor_identity_status?: string | null
     masked_account?: string | null
     bank_name?: string | null
     country?: string | null
@@ -37,7 +37,7 @@ function displayValue(value: string | null | undefined): string {
   return value
 }
 
-function displayBoolean(value: boolean | undefined): string {
+function displayBoolean(value: boolean | null | undefined): string {
   if (typeof value !== "boolean") return "N/A"
   return value ? "Yes" : "No"
 }

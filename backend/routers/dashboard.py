@@ -179,7 +179,7 @@ def get_all_invoices(
         )
         .filter(Invoice.user_id == user.id)
     )
-    
+
     # 🔍 SEARCH (invoice_id OR vendor_name)
     if search:
         query = query.filter(
@@ -209,8 +209,11 @@ def get_all_invoices(
 
 
 @router.get("/invoice/{invoice_id}")
-def get_invoice_analysis(invoice_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-
+def get_invoice_analysis(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     invoice = db.query(Invoice).filter(
         Invoice.invoice_id == invoice_id,
         Invoice.user_id == user.id
@@ -229,37 +232,43 @@ def get_invoice_analysis(invoice_id: int, db: Session = Depends(get_db), user: U
     if not analysis:
         return {"detail": "No analysis found for this invoice"}
 
-    semantic = analysis.semantic_json if isinstance(analysis.semantic_json, dict) else {}
-
-    bank_account = semantic.get("bank_account")
-    country = semantic.get("country")
-    account_type = semantic.get("account_type")
-
-    vendor_bank = (
-        verify_vendor_bank_account(
-            db=db,
-            vendor_name=semantic.get("vendor_name"),
-            bank_account=bank_account,
-            country=country,
-            account_type=account_type,
-        )
-        if semantic
-        else None
-    )
-
-    external_verification = None
-    if bank_account and account_type == "iban" and country == "OTHER":
-        external_verification = verify_iban_external(bank_account)
+    semantic = analysis.semantic_json if isinstance(
+        analysis.semantic_json, dict) else {}
 
     return {
         "invoice_id": invoice.invoice_id,
-        "file_type": "pdf",  # or infer if needed
-        "crypto": analysis.crypto_json,
-        "vendor_bank": vendor_bank,
-        "ai": analysis.ai_json,
-        "rules": analysis.rules_json,
-        "external_verification": external_verification,
+        "file_type": analysis.file_type or "pdf",
+
+        "crypto": analysis.crypto_json or {},
+        "ai": analysis.ai_json or {},
+        "rules": analysis.rules_json or {},
+
         "semantic": semantic,
+        "semantic_vendor_name": semantic.get("vendor_name"),
+        "semantic_bank_account": semantic.get("bank_account"),
+        "semantic_bank_name": semantic.get("bank_name"),
+        "semantic_invoice_number": semantic.get("invoice_number"),
+        "semantic_total_amount": semantic.get("total_amount"),
+        "semantic_customer_name": semantic.get("customer_name"),
+        "semantic_invoice_date": semantic.get("invoice_date"),
+        "semantic_subtotal": semantic.get("subtotal"),
+        "semantic_tax": semantic.get("tax"),
+        "semantic_currency": semantic.get("currency"),
+
+        "vendor_bank": analysis.vendor_bank_json,
+        "external_verification": analysis.external_verification_json,
+
+        "forensics": analysis.forensics_json,
+        "ai_artifact": analysis.ai_artifact_json,
+        "preview": analysis.preview_json,
+
+        "highlights": analysis.highlights_json or [],
+        "spatial_highlights": analysis.spatial_highlights_json or [],
+        "document_highlights": analysis.document_highlights_json or [],
+        "highlight_summary": analysis.highlight_summary_json,
+
+        "scoring": analysis.scoring_json,
+
         "confidence": analysis.confidence,
         "prediction": analysis.prediction,
         "created_at": analysis.created_at,

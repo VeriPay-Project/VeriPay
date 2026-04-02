@@ -32,12 +32,22 @@ import {
   Sparkles,
 } from "lucide-react"
 
+import { ScoringCard } from "@/components/analysis/ScoringCard"
+import { ForensicsCard } from "@/components/analysis/ForensicsCard"
+import { AiArtifactCard } from "@/components/analysis/AiArtifactCard"
+import { InvoiceHighlightViewer } from "@/components/analysis/InvoiceHighlightViewer"
+
+import type { AnalysisResult } from "@/components/analysis/types"
+
+
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                             */
 /* ------------------------------------------------------------------ */
+
+import { normalizeAnalysisResult } from "@/components/analysis/normalize"
 
 type InvoiceSummary = {
   invoice_id: number
@@ -66,185 +76,185 @@ type ForensicLayerScore = {
   triggered: boolean
 }
 
-type AnalysisResult = {
-  invoice_id: number
-  file_type: string
+// type AnalysisResult = {
+//   invoice_id: number
+//   file_type: string
 
-  crypto: {
-    signature_present: boolean
-    signature_integrity: string
-    certificate_trust: string
-    signer_fingerprint: string | null
-    vendor_status?: string
-    signer_identity?: string
-  }
+//   crypto: {
+//     signature_present: boolean
+//     signature_integrity: string
+//     certificate_trust: string
+//     signer_fingerprint: string | null
+//     vendor_status?: string
+//     signer_identity?: string
+//   }
 
-  ai: {
-    status: string
-    message?: string
-    anomaly_score?: number
-    risk_level?: string
-    review_required?: boolean
-    embedding_distance?: number
-    distance_z_score?: number
-    explanations?: string[]
-  }
+//   ai: {
+//     status: string
+//     message?: string
+//     anomaly_score?: number
+//     risk_level?: string
+//     review_required?: boolean
+//     embedding_distance?: number
+//     distance_z_score?: number
+//     explanations?: string[]
+//   }
 
-  rules: {
-    status: string
-    message?: string
-    word_count?: number
-    font_count?: number
-    fonts?: string[]
-    line_item_count?: number
-    line_item_sum?: number | null
-    subtotal?: number | null
-    tax?: number | null
-    total?: number | null
-    checks?: {
-      subtotal_matches_items?: boolean | null
-      subtotal_delta?: number | null
-      total_matches_subtotal_tax?: boolean | null
-      total_delta?: number | null
-    }
-  }
+//   rules: {
+//     status: string
+//     message?: string
+//     word_count?: number
+//     font_count?: number
+//     fonts?: string[]
+//     line_item_count?: number
+//     line_item_sum?: number | null
+//     subtotal?: number | null
+//     tax?: number | null
+//     total?: number | null
+//     checks?: {
+//       subtotal_matches_items?: boolean | null
+//       subtotal_delta?: number | null
+//       total_matches_subtotal_tax?: boolean | null
+//       total_delta?: number | null
+//     }
+//   }
 
-  vendor_identity?: {
-    status: string
-    vendor_name?: string
-  }
+//   vendor_identity?: {
+//     status: string
+//     vendor_name?: string
+//   }
 
-  vendor_bank?: {
-    bank_account_detected?: boolean
-    status?: string
-    masked_account?: string
-    bank_name?: string
-    verification_status?: string
-    vendor_identity_status?: string
-    country?: string | null
-    account_type?: string | null
-  }
+//   vendor_bank?: {
+//     bank_account_detected?: boolean
+//     status?: string
+//     masked_account?: string
+//     bank_name?: string
+//     verification_status?: string
+//     vendor_identity_status?: string
+//     country?: string | null
+//     account_type?: string | null
+//   }
 
-  issuer_payee_binding?: {
-    status?: string
-    flags?: string[]
-    vendor_name?: string
-  }
+//   issuer_payee_binding?: {
+//     status?: string
+//     flags?: string[]
+//     vendor_name?: string
+//   }
 
-  external_verification?: {
-    success?: boolean
-    bank_name?: string
-    bic?: string
-    country?: string
-    confidence?: string
-  }
+//   external_verification?: {
+//     success?: boolean
+//     bank_name?: string
+//     bic?: string
+//     country?: string
+//     confidence?: string
+//   }
 
-  semantic?: {
-    vendor_name?: string | null
-    customer_name?: string | null
-    invoice_date?: string | null
-    invoice_number?: string | null
-    subtotal?: string | number | null
-    tax?: string | number | null
-    total_amount?: string | number | null
-    currency?: string | null
-    bank_name?: string | null
-    bank_account?: string | null
-  }
+//   semantic?: {
+//     vendor_name?: string | null
+//     customer_name?: string | null
+//     invoice_date?: string | null
+//     invoice_number?: string | null
+//     subtotal?: string | number | null
+//     tax?: string | number | null
+//     total_amount?: string | number | null
+//     currency?: string | null
+//     bank_name?: string | null
+//     bank_account?: string | null
+//   }
 
-  semantic_vendor_name?: string | null
-  semantic_customer_name?: string | null
-  semantic_invoice_date?: string | null
-  semantic_invoice_number?: string | null
-  semantic_subtotal?: string | null
-  semantic_tax?: string | null
-  semantic_total_amount?: string | null
-  semantic_currency?: string | null
-  semantic_bank_name?: string | null
-  semantic_bank_account?: string | null
+//   semantic_vendor_name?: string | null
+//   semantic_customer_name?: string | null
+//   semantic_invoice_date?: string | null
+//   semantic_invoice_number?: string | null
+//   semantic_subtotal?: string | null
+//   semantic_tax?: string | null
+//   semantic_total_amount?: string | null
+//   semantic_currency?: string | null
+//   semantic_bank_name?: string | null
+//   semantic_bank_account?: string | null
 
-  preview?: {
-    image_path: string
-    width: number
-    height: number
-    page?: number
-    total_pages?: number
-    dpi?: number | null
-    source_type?: string
-    loader?: string
-  }
+//   preview?: {
+//     image_path: string
+//     width: number
+//     height: number
+//     page?: number
+//     total_pages?: number
+//     dpi?: number | null
+//     source_type?: string
+//     loader?: string
+//   }
 
-  highlights?: Highlight[]
-  spatial_highlights?: Highlight[]
-  document_highlights?: Highlight[]
+//   highlights?: Highlight[]
+//   spatial_highlights?: Highlight[]
+//   document_highlights?: Highlight[]
 
-  highlight_summary?: {
-    total: number
-    spatial_count: number
-    document_count: number
-    top_confidence: number
-    sources?: string[]
-  }
+//   highlight_summary?: {
+//     total: number
+//     spatial_count: number
+//     document_count: number
+//     top_confidence: number
+//     sources?: string[]
+//   }
 
-  forensics?: {
-    status: string
-    risk_level?: string
-    forensic_score?: number
-    // Cross-signal boost reasons from the calibrated engine
-    risk_reasons?: string[]
-    // Input quality from _assess_input_quality
-    input_quality?: number
-    quality_warnings?: string[]
-    advanced_used?: boolean
-    // Flat per-layer scores (for score bars)
-    metadata_score?: number
-    ela_score?: number
-    noise_score?: number
-    dct_score?: number
-    copy_move_score?: number
-    font_score?: number
-    text_region_score?: number
-    // Full layer breakdown with confidence + triggered flag
-    layer_scores?: Record<string, ForensicLayerScore>
-    image_analyzed?: boolean
-    image_reason?: string
-    signals?: {
-      type: string
-      message: string
-      confidence: number
-    }[]
-  }
+//   forensics?: {
+//     status: string
+//     risk_level?: string
+//     forensic_score?: number
+//     // Cross-signal boost reasons from the calibrated engine
+//     risk_reasons?: string[]
+//     // Input quality from _assess_input_quality
+//     input_quality?: number
+//     quality_warnings?: string[]
+//     advanced_used?: boolean
+//     // Flat per-layer scores (for score bars)
+//     metadata_score?: number
+//     ela_score?: number
+//     noise_score?: number
+//     dct_score?: number
+//     copy_move_score?: number
+//     font_score?: number
+//     text_region_score?: number
+//     // Full layer breakdown with confidence + triggered flag
+//     layer_scores?: Record<string, ForensicLayerScore>
+//     image_analyzed?: boolean
+//     image_reason?: string
+//     signals?: {
+//       type: string
+//       message: string
+//       confidence: number
+//     }[]
+//   }
 
-  ai_artifact?: {
-    status: string
-    ai_text_score: number
-    risk_level?: string
-    reasoning?: string
-    perplexity_risk?: number
-    burstiness_risk?: number
-    repetition_score?: number
-    signals?: {
-      type: string
-      message: string
-      confidence?: number
-    }[]
-    reason?: string
-  }
+//   ai_artifact?: {
+//     status: string
+//     ai_text_score: number
+//     risk_level?: string
+//     reasoning?: string
+//     perplexity_risk?: number
+//     burstiness_risk?: number
+//     repetition_score?: number
+//     signals?: {
+//       type: string
+//       message: string
+//       confidence?: number
+//     }[]
+//     reason?: string
+//   }
 
-  scoring?: {
-    fraud_score: number
-    risk_level: string
-    prediction: number
-    model_version: string
-    score_breakdown?: Record<string, number>
-    weights_used?: Record<string, number>
-  }
+//   scoring?: {
+//     fraud_score: number
+//     risk_level: string
+//     prediction: number
+//     model_version: string
+//     score_breakdown?: Record<string, number>
+//     weights_used?: Record<string, number>
+//   }
 
-  fraud_flags?: {
-    rule_code: string
-    message: string
-  }[]
-}
+//   fraud_flags?: {
+//     rule_code: string
+//     message: string
+//   }[]
+// }
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
@@ -496,8 +506,8 @@ function CryptoTrustBar({ trust }: { trust?: string }) {
 
 function SkeletonCard() {
   return (
-    <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl">
-      <CardContent className="flex flex-col gap-4 p-6">
+    <Card className="h-full border-0 bg-card/65 shadow-sm backdrop-blur-xl">
+      <CardContent className="flex h-full flex-col gap-4 p-6">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 animate-pulse rounded-xl bg-muted" />
           <div className="h-4 w-40 animate-pulse rounded bg-muted" />
@@ -550,633 +560,6 @@ const HIGHLIGHT_STYLES: Record<
 
 function getHighlightStyle(color?: string) {
   return HIGHLIGHT_STYLES[color || "blue"] ?? HIGHLIGHT_STYLES.blue
-}
-
-/* ------------------------------------------------------------------ */
-/*  Invoice highlight viewer                                          */
-/* ------------------------------------------------------------------ */
-
-function InvoiceHighlightViewer({
-  result,
-}: {
-  result: AnalysisResult
-}) {
-  const [activeIdx, setActiveIdx] = useState(0)
-  const [imgDims, setImgDims] = useState<{ w: number; h: number } | null>(null)
-  const [naturalDims, setNaturalDims] = useState<{ w: number; h: number } | null>(
-    null
-  )
-  const [imageLoadFailed, setImageLoadFailed] = useState(false)
-
-  const allHighlights: Highlight[] =
-    result.highlights && result.highlights.length > 0
-      ? result.highlights
-      : [
-        ...(result.spatial_highlights ?? []),
-        ...(result.document_highlights ?? []),
-      ]
-
-  const bboxHighlights = allHighlights.filter((h) => h.bbox !== null)
-  const docHighlights = allHighlights.filter((h) => h.bbox === null)
-
-  const previewUrl = resolvePreviewUrl(result.preview?.image_path)
-  const hasPreview = Boolean(previewUrl && !imageLoadFailed)
-
-  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget
-    setImgDims({ w: img.clientWidth, h: img.clientHeight })
-    setNaturalDims({
-      w: result.preview?.width || img.naturalWidth,
-      h: result.preview?.height || img.naturalHeight,
-    })
-  }
-
-  const handleImageError = () => {
-    setImageLoadFailed(true)
-    setImgDims(null)
-    setNaturalDims(null)
-  }
-
-  const scaleBox = (bbox: [number, number, number, number]) => {
-    if (!imgDims || !naturalDims) return null
-
-    const scaleX = imgDims.w / naturalDims.w
-    const scaleY = imgDims.h / naturalDims.h
-
-    return {
-      left: bbox[0] * scaleX,
-      top: bbox[1] * scaleY,
-      width: bbox[2] * scaleX,
-      height: bbox[3] * scaleY,
-    }
-  }
-
-  return (
-    <div className="grid items-start gap-6 lg:grid-cols-[1fr_320px]">
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="rounded-lg bg-muted/50 px-3 py-2 text-[10px] text-muted-foreground">
-          <span className="font-medium text-foreground">
-            {(result.preview?.source_type ?? result.file_type).toUpperCase()}
-          </span>
-          {result.preview?.total_pages ? (
-            <>
-              {" · "}
-              Page {result.preview.page ?? 1} of {result.preview.total_pages}
-            </>
-          ) : null}
-          {result.preview?.width && result.preview?.height ? (
-            <>
-              {" · "}
-              {result.preview.width}×{result.preview.height}
-            </>
-          ) : null}
-          {result.preview?.loader ? (
-            <>
-              {" · "}
-              {result.preview.loader}
-            </>
-          ) : null}
-        </div>
-
-        <div className="relative overflow-hidden rounded-lg border border-border/40 bg-black/5">
-          {hasPreview ? (
-            <div className="relative max-h-[720px] overflow-auto">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={previewUrl ?? undefined}
-                alt="Invoice preview"
-                className="h-auto w-full object-contain"
-                onLoad={handleImageLoad}
-                onError={handleImageError}
-              />
-
-              {imgDims &&
-                naturalDims &&
-                bboxHighlights.map((hl, idx) => {
-                  if (!hl.bbox) return null
-
-                  const scaled = scaleBox(hl.bbox)
-                  if (!scaled) return null
-
-                  const style = getHighlightStyle(hl.color)
-                  const isActive = activeIdx === idx
-
-                  return (
-                    <div
-                      key={idx}
-                      className={`absolute cursor-pointer rounded-sm border-2 transition-all duration-150 hover:scale-[1.01]
-                        ${style.border} ${style.bg}
-                        ${isActive
-                          ? "opacity-100 ring-2 ring-current ring-offset-1"
-                          : "opacity-70 hover:opacity-100"
-                        }
-                      `}
-                      style={{
-                        left: scaled.left,
-                        top: scaled.top,
-                        width: scaled.width,
-                        height: scaled.height,
-                        zIndex: isActive ? 20 : 10,
-                      }}
-                      onClick={() => setActiveIdx(isActive ? -1 : idx)}
-                      title={hl.message}
-                    >
-                      {isActive && (
-                        <span
-                          className={`absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold ${style.label}`}
-                        >
-                          {hl.type.replace(/_/g, " ")}
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-            </div>
-          ) : (
-            <div className="flex min-h-[360px] items-center justify-center px-6 py-10 text-center">
-              <div className="flex max-w-sm flex-col items-center gap-2">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-                  <AlertTriangle className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <p className="text-sm font-medium text-foreground">
-                  {previewUrl ? "Preview unavailable" : "Preview not generated"}
-                </p>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {previewUrl
-                    ? "The analysis completed, but the returned preview image could not be loaded."
-                    : "The invoice preview could not be generated for this analysis run."}
-                </p>
-                {result.forensics?.image_reason && (
-                  <p className="rounded-lg bg-muted/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                    {result.forensics.image_reason}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="flex w-full flex-col gap-3 overflow-y-auto pr-1 lg:max-h-[720px]">
-        <div className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">{allHighlights.length}</span>{" "}
-          signal{allHighlights.length !== 1 ? "s" : ""} detected
-          {" · "}
-          <span className="font-medium text-foreground">
-            {bboxHighlights.length}
-          </span>{" "}
-          with region
-        </div>
-
-        <div className="flex flex-wrap gap-2 text-[10px]">
-          {(["red", "amber", "blue", "coral"] as const).map((c) => (
-            <span key={c} className="flex items-center gap-1">
-              <span className={`h-2 w-2 rounded-sm ${HIGHLIGHT_STYLES[c].dot}`} />
-              <span className="text-muted-foreground capitalize">
-                {c === "red"
-                  ? "Manipulation"
-                  : c === "amber"
-                    ? "AI artifact"
-                    : c === "blue"
-                      ? "Forensic"
-                      : "Rules"}
-              </span>
-            </span>
-          ))}
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          {bboxHighlights.length > 0 && !hasPreview && (
-            <div className="rounded-lg border border-border/40 bg-background px-3 py-3 text-[10px] leading-relaxed text-muted-foreground">
-              Spatial findings were generated, but the preview image is unavailable so
-              overlays cannot be shown.
-            </div>
-          )}
-
-          {bboxHighlights.length > 0 && (
-            <div className="rounded-lg border border-border/40 bg-muted/30 p-2">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Region findings
-              </p>
-              <div className="flex flex-col gap-1.5">
-                {bboxHighlights.map((hl, idx) => {
-                  const style = getHighlightStyle(hl.color)
-                  const isActive = activeIdx === idx
-
-                  return (
-                    <button
-                      key={`${hl.type}-${idx}`}
-                      className={`w-full rounded-lg border px-3 py-3 text-left transition-all duration-150
-                        ${isActive
-                          ? `${style.border} ${style.bg}`
-                          : "border-border/40 bg-background hover:bg-muted/60"
-                        }`}
-                      onClick={() => setActiveIdx(isActive ? -1 : idx)}
-                    >
-                      <div className="mb-1 flex items-center gap-2">
-                        <span
-                          className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`}
-                        />
-                        <span className="text-[11px] font-semibold text-foreground truncate">
-                          {hl.type.replace(/_/g, " ")}
-                        </span>
-                        <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
-                          {(hl.confidence * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                      <p className="text-[10px] leading-relaxed text-muted-foreground">
-                        {hl.message}
-                      </p>
-                      <p className="mt-1 text-[9px] uppercase tracking-wider text-muted-foreground/60">
-                        {hl.source} · region
-                      </p>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {docHighlights.length > 0 && (
-            <div className="rounded-lg border border-border/40 bg-muted/30 p-2">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Document findings
-              </p>
-              <div className="flex flex-col gap-1.5">
-                {docHighlights.map((hl, idx) => {
-                  const style = getHighlightStyle(hl.color)
-
-                  return (
-                    <div
-                      key={`${hl.type}-doc-${idx}`}
-                      className="w-full rounded-lg border border-border/40 bg-background px-3 py-3 text-left"
-                    >
-                      <div className="mb-1 flex items-center gap-2">
-                        <span
-                          className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`}
-                        />
-                        <span className="text-[11px] font-semibold text-foreground truncate">
-                          {hl.type.replace(/_/g, " ")}
-                        </span>
-                        <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
-                          {(hl.confidence * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                      <p className="text-[10px] leading-relaxed text-muted-foreground">
-                        {hl.message}
-                      </p>
-                      <p className="mt-1 text-[9px] uppercase tracking-wider text-muted-foreground/60">
-                        {hl.source} · document
-                      </p>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {result.highlight_summary && (
-            <div className="rounded-lg bg-muted/50 px-3 py-2 text-[10px] text-muted-foreground">
-              Total:{" "}
-              <span className="font-medium text-foreground">
-                {result.highlight_summary.total}
-              </span>
-              {" · "}Spatial:{" "}
-              <span className="font-medium text-foreground">
-                {result.highlight_summary.spatial_count}
-              </span>
-              {" · "}Document:{" "}
-              <span className="font-medium text-foreground">
-                {result.highlight_summary.document_count}
-              </span>
-            </div>
-          )}
-
-          {allHighlights.length === 0 && (
-            <div className="rounded-lg border border-border/40 bg-background px-3 py-4 text-xs text-muted-foreground">
-              No detected signals were generated for this invoice.
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Scoring card                                                      */
-/* ------------------------------------------------------------------ */
-
-function ScoringCard({ scoring }: { scoring?: AnalysisResult["scoring"] }) {
-  const [expanded, setExpanded] = useState(false)
-  if (!scoring) return null
-
-  const breakdown = scoring.score_breakdown ?? {}
-
-  return (
-    <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500">
-      <CardContent className="flex flex-col gap-4 p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-              <BarChart3 className="h-5 w-5 text-primary" />
-            </div>
-            <h3 className="text-sm font-semibold text-foreground">
-              Ensemble fraud score
-            </h3>
-          </div>
-          <RiskPill level={scoring.risk_level} />
-        </div>
-
-        <ScoreBar label="Fraud score" score={scoring.fraud_score} invert={false} />
-
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {expanded ? (
-            <ChevronUp className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5" />
-          )}
-          {expanded ? "Hide" : "Show"} score breakdown
-        </button>
-
-        {expanded && (
-          <div className="divide-y divide-border/40">
-            {Object.entries(breakdown).map(([key, val]) => (
-              <ScoreBar
-                key={key}
-                label={key.replace(/_/g, " ")}
-                score={val as number}
-                invert={false}
-              />
-            ))}
-          </div>
-        )}
-
-        <div className="rounded-lg bg-muted/50 px-3 py-2 text-[10px] text-muted-foreground">
-          Model:{" "}
-          <span className="font-mono text-foreground">{scoring.model_version}</span>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Forensics card                                                    */
-/* ------------------------------------------------------------------ */
-
-function ForensicsCard({ forensics }: { forensics?: AnalysisResult["forensics"] }) {
-  const [layersExpanded, setLayersExpanded] = useState(false)
-  if (!forensics) return null
-
-  // Use layer_scores for triggered badges if available, fall back to flat scores
-  const ls = forensics.layer_scores
-
-  return (
-    <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500">
-      <CardContent className="flex flex-col gap-4 p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-              <Microscope className="h-5 w-5 text-primary" />
-            </div>
-            <h3 className="text-sm font-semibold text-foreground">
-              Forensic analysis
-            </h3>
-          </div>
-          <RiskPill level={forensics.risk_level} />
-        </div>
-
-        <ScoreBar
-          label="Forensic risk score"
-          score={forensics.forensic_score}
-          invert={false}
-        />
-
-        {/* Per-layer scores with triggered badges */}
-        <div className="divide-y divide-border/40">
-          <ScoreBar
-            label="ELA (recompression)"
-            score={forensics.ela_score}
-            invert={false}
-            triggered={ls?.ela?.triggered}
-          />
-          <ScoreBar
-            label="Font inconsistency"
-            score={forensics.font_score}
-            invert={false}
-            triggered={ls?.font?.triggered}
-          />
-          <ScoreBar
-            label="Noise inconsistency"
-            score={forensics.noise_score}
-            invert={false}
-            triggered={ls?.noise?.triggered}
-          />
-          <ScoreBar
-            label="Text rendering"
-            score={forensics.text_region_score}
-            invert={false}
-            triggered={ls?.text?.triggered}
-          />
-          <ScoreBar
-            label="Metadata anomaly"
-            score={forensics.metadata_score}
-            invert={false}
-            triggered={ls?.metadata?.triggered}
-          />
-        </div>
-
-        {/* Advanced layers — collapsible since they're often 0 */}
-        <button
-          onClick={() => setLayersExpanded((v) => !v)}
-          className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {layersExpanded ? (
-            <ChevronUp className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5" />
-          )}
-          {layersExpanded ? "Hide" : "Show"} advanced layers
-          {forensics.advanced_used && (
-            <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
-              ran
-            </span>
-          )}
-        </button>
-
-        {layersExpanded && (
-          <div className="divide-y divide-border/40">
-            <ScoreBar
-              label="DCT artifacts"
-              score={forensics.dct_score}
-              invert={false}
-              triggered={ls?.dct?.triggered}
-            />
-            <ScoreBar
-              label="Copy-move forgery"
-              score={forensics.copy_move_score}
-              invert={false}
-              triggered={ls?.copy_move?.triggered}
-            />
-            {forensics.input_quality !== undefined && (
-              <ScoreBar
-                label="Input quality"
-                score={forensics.input_quality}
-                invert={true}
-              />
-            )}
-          </div>
-        )}
-
-        {/* Risk reasons from cross-signal boosts + tier overrides */}
-        {forensics.risk_reasons && forensics.risk_reasons.length > 0 && (
-          <ul className="flex flex-col gap-1 rounded-lg bg-muted/50 px-3 py-2">
-            <li className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Risk reasons
-            </li>
-            {forensics.risk_reasons.map((reason, idx) => (
-              <li key={idx} className="text-xs leading-relaxed text-muted-foreground">
-                &bull; {reason}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {/* Triggered signal list */}
-        {forensics.signals && forensics.signals.length > 0 && (
-          <ul className="flex flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2">
-            {forensics.signals.map((signal, idx) => (
-              <li key={idx} className="text-xs leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {signal.type.replace(/_/g, " ")}
-                </span>
-                {" — "}
-                {signal.message}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {/* Quality warnings */}
-        {forensics.quality_warnings && forensics.quality_warnings.length > 0 && (
-          <ul className="flex flex-col gap-1 rounded-lg bg-amber-50 px-3 py-2 dark:bg-amber-500/10">
-            {forensics.quality_warnings.map((w, idx) => (
-              <li key={idx} className="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400">
-                <AlertTriangle className="h-3 w-3 shrink-0" />
-                {w}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {forensics.image_analyzed === false && (
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            {forensics.image_reason ??
-              "Visual analysis unavailable — image could not be extracted"}
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  AI artifact card                                                  */
-/* ------------------------------------------------------------------ */
-
-function AiArtifactCard({
-  artifact,
-}: {
-  artifact?: AnalysisResult["ai_artifact"]
-}) {
-  if (!artifact) return null
-
-  return (
-    <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500">
-      <CardContent className="flex flex-col gap-4 p-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-            <Sparkles className="h-5 w-5 text-primary" />
-          </div>
-          <h3 className="text-sm font-semibold text-foreground">
-            AI artifact detection
-          </h3>
-        </div>
-
-        {artifact.status === "skipped" || artifact.status === "insufficient_text" ? (
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            {artifact.reason ?? artifact.reasoning ?? "Insufficient text for analysis"}
-          </p>
-        ) : (
-          <>
-            <ScoreBar
-              label="AI text score"
-              score={artifact.ai_text_score}
-              invert={false}
-            />
-
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Risk level
-              </span>
-              <RiskPill level={artifact.risk_level} />
-            </div>
-
-            {(artifact.perplexity_risk !== undefined ||
-              artifact.burstiness_risk !== undefined ||
-              artifact.repetition_score !== undefined) && (
-                <div className="divide-y divide-border/40">
-                  <ScoreBar
-                    label="Perplexity risk"
-                    score={artifact.perplexity_risk}
-                    invert={false}
-                  />
-                  <ScoreBar
-                    label="Burstiness risk"
-                    score={artifact.burstiness_risk}
-                    invert={false}
-                  />
-                  <ScoreBar
-                    label="Repetition"
-                    score={artifact.repetition_score}
-                    invert={false}
-                  />
-                </div>
-              )}
-
-            {artifact.reasoning && (
-              <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                {artifact.reasoning}
-              </p>
-            )}
-
-            {artifact.signals?.length ? (
-              <ul className="flex flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2">
-                {artifact.signals.map((signal, idx) => (
-                  <li
-                    key={idx}
-                    className="text-xs leading-relaxed text-muted-foreground"
-                  >
-                    <span className="font-medium text-foreground">
-                      {signal.type.replace(/_/g, " ")}
-                    </span>
-                    {" — "}
-                    {signal.message}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </>
-        )}
-      </CardContent>
-    </Card>
-  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -1307,7 +690,7 @@ export default function AnalysisPage() {
         </p>
       </section>
 
-      <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl">
+      <Card className="h-full border-0 bg-card/65 shadow-sm backdrop-blur-xl">
         <CardContent className="flex flex-col gap-5 p-6">
           <div className="grid gap-5 md:grid-cols-2">
             <div className="flex flex-col gap-2">
@@ -1397,7 +780,7 @@ export default function AnalysisPage() {
           className={`absolute inset-0 transition-opacity duration-300 ${isRunning ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
         >
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-3 items-stretch">
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
@@ -1418,7 +801,7 @@ export default function AnalysisPage() {
                 (result.highlights && result.highlights.length > 0) ||
                 (result.spatial_highlights && result.spatial_highlights.length > 0)) && (
                   <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in duration-500">
-                    <CardContent className="flex flex-col gap-4 p-6">
+                    <CardContent className="flex h-full flex-col gap-4 p-6">
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                           <ScanSearch className="h-5 w-5 text-primary" />
@@ -1437,15 +820,15 @@ export default function AnalysisPage() {
                   </Card>
                 )}
 
-              <div className="grid gap-6 lg:grid-cols-3">
+              <div className="grid gap-6 lg:grid-cols-3 items-stretch">
                 <ScoringCard scoring={result.scoring} />
                 <ForensicsCard forensics={result.forensics} />
                 <AiArtifactCard artifact={result.ai_artifact} />
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-3">
+              <div className="grid gap-6 lg:grid-cols-3 items-stretch">
                 <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-75">
-                  <CardContent className="flex flex-col gap-4 p-6">
+                  <CardContent className="flex h-full flex-col gap-4 p-6">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                         <ShieldCheck className="h-5 w-5 text-primary" />
@@ -1495,7 +878,7 @@ export default function AnalysisPage() {
                 />
 
                 <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-200">
-                  <CardContent className="flex flex-col gap-4 p-6">
+                  <CardContent className="flex h-full flex-col gap-4 p-6">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                         <Info className="h-5 w-5 text-primary" />
@@ -1574,7 +957,7 @@ export default function AnalysisPage() {
                 </Card>
 
                 <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-150">
-                  <CardContent className="flex flex-col gap-4 p-6">
+                  <CardContent className="flex h-full flex-col gap-4 p-6">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                         <Brain className="h-5 w-5 text-primary" />
@@ -1639,7 +1022,7 @@ export default function AnalysisPage() {
                 </Card>
 
                 <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-300">
-                  <CardContent className="flex flex-col gap-4 p-6">
+                  <CardContent className="flex h-full flex-col gap-4 p-6">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                         <ClipboardCheck className="h-5 w-5 text-primary" />
@@ -1723,7 +1106,7 @@ export default function AnalysisPage() {
               </div>
             </div>
           ) : (
-            <div className="grid gap-6 lg:grid-cols-3">
+            <div className="grid gap-6 lg:grid-cols-3 items-stretch">
               <EmptyCard
                 icon={ShieldCheck}
                 title="Cryptographic verification results will appear here."

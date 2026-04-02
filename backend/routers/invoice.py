@@ -93,7 +93,8 @@ def _extract_invoice_fields_regex(text: str) -> dict:
         "bank_name":         None,
         "bank_account":      None,
         "institution_number": None,   # Canadian institution code (3 digits)
-        "transit_number":    None,    # Canadian transit/branch number (5 digits)
+        # Canadian transit/branch number (5 digits)
+        "transit_number":    None,
         "routing_number":    None,    # US routing number (9 digits)
         "account_number":    None,    # Raw account number
         "invoice_number":    None,
@@ -108,19 +109,23 @@ def _extract_invoice_fields_regex(text: str) -> dict:
     if not text:
         return fields
 
-    vendor_match = re.search(r"(?:vendor|supplier|from)\s*[:\-]\s*([^\n\r]+)", text, re.IGNORECASE)
+    vendor_match = re.search(
+        r"(?:vendor|supplier|from)\s*[:\-]\s*([^\n\r]+)", text, re.IGNORECASE)
     if vendor_match:
         fields["vendor_name"] = vendor_match.group(1).strip()
 
-    bank_match = re.search(r"(?:bank\s*name|bank)\s*[:\-]\s*([^\n\r]+)", text, re.IGNORECASE)
+    bank_match = re.search(
+        r"(?:bank\s*name|bank)\s*[:\-]\s*([^\n\r]+)", text, re.IGNORECASE)
     if bank_match:
         fields["bank_name"] = bank_match.group(1).strip()
 
-    invoice_match = re.search(r"(?:invoice\s*(?:no|number)?\s*[:#-]\s*([A-Z0-9\-\/]+))", text, re.IGNORECASE)
+    invoice_match = re.search(
+        r"(?:invoice\s*(?:no|number)?\s*[:#-]\s*([A-Z0-9\-\/]+))", text, re.IGNORECASE)
     if invoice_match:
         fields["invoice_number"] = invoice_match.group(1).strip()
 
-    total_match = re.search(r"(?:total|amount due)\s*[:\-]?\s*\$?\s*([0-9,]+\.\d{2})", text, re.IGNORECASE)
+    total_match = re.search(
+        r"(?:total|amount due)\s*[:\-]?\s*\$?\s*([0-9,]+\.\d{2})", text, re.IGNORECASE)
     if total_match:
         fields["total_amount"] = total_match.group(1)
 
@@ -130,7 +135,8 @@ def _extract_invoice_fields_regex(text: str) -> dict:
         text,
         re.IGNORECASE,
     )
-    fields["institution_number"] = institution_match.group(1) if institution_match else None
+    fields["institution_number"] = institution_match.group(
+        1) if institution_match else None
 
     # Canadian transit number — 5 digits
     transit_match = re.search(
@@ -138,7 +144,8 @@ def _extract_invoice_fields_regex(text: str) -> dict:
         text,
         re.IGNORECASE,
     )
-    fields["transit_number"] = transit_match.group(1) if transit_match else None
+    fields["transit_number"] = transit_match.group(
+        1) if transit_match else None
 
     # US routing number — 9 digits
     routing_match = re.search(
@@ -146,7 +153,8 @@ def _extract_invoice_fields_regex(text: str) -> dict:
         text,
         re.IGNORECASE,
     )
-    fields["routing_number"] = routing_match.group(1) if routing_match else None
+    fields["routing_number"] = routing_match.group(
+        1) if routing_match else None
 
     # Raw account number
     account_match = re.search(
@@ -154,7 +162,8 @@ def _extract_invoice_fields_regex(text: str) -> dict:
         text,
         re.IGNORECASE,
     )
-    fields["account_number"] = account_match.group(1) if account_match else None
+    fields["account_number"] = account_match.group(
+        1) if account_match else None
 
     for pattern in ACCOUNT_PATTERNS:
         match = re.search(pattern, text, re.IGNORECASE)
@@ -245,12 +254,15 @@ def _account_matches(
         invoice_country,
         invoice_account_number,
     )
-    hashed_account = hash_account(normalized_account) if normalized_account else None
-    masked_normalized_account = mask_account(normalized_account) if normalized_account else None
+    hashed_account = hash_account(
+        normalized_account) if normalized_account else None
+    masked_normalized_account = mask_account(
+        normalized_account) if normalized_account else None
 
     binding_masked = _compact_masked_account(binding.account_masked)
     invoice_masked_input = _compact_masked_account(invoice_account_number)
-    normalized_masked_input = _compact_masked_account(masked_normalized_account)
+    normalized_masked_input = _compact_masked_account(
+        masked_normalized_account)
 
     return any(
         (
@@ -338,7 +350,8 @@ async def match_invoice_vendor(
     try:
         payload = await request.json()
     except Exception as exc:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+        raise HTTPException(
+            status_code=400, detail="Invalid JSON payload") from exc
 
     try:
         match_request = InvoiceVendorMatchRequest.model_validate(payload)
@@ -380,7 +393,8 @@ async def match_invoice_vendor(
 
     best_vendor = max(
         vendor_candidates,
-        key=lambda vendor: _vendor_name_rank(vendor_name_query, vendor.vendor_name),
+        key=lambda vendor: _vendor_name_rank(
+            vendor_name_query, vendor.vendor_name),
     )
 
     try:
@@ -557,7 +571,8 @@ async def upload_invoice(
     file_hash = compute_sha256(contents)
 
     if db.query(Invoice).filter(Invoice.file_hash == file_hash).first():
-        raise HTTPException(status_code=409, detail="Duplicate invoice detected")
+        raise HTTPException(
+            status_code=409, detail="Duplicate invoice detected")
 
     file_path = os.path.join(INVOICE_DIR, f"{uuid.uuid4()}{extension}")
     with open(file_path, "wb") as f:
@@ -665,10 +680,10 @@ async def analyze_invoice(
 
     # ── BANK ACCOUNT ASSEMBLY ──
     # Priority: Canadian three-part > Canadian two-part > US two-part > LLM direct
-    routing     = merged_fields.get("routing_number")
-    account     = merged_fields.get("account_number")
+    routing = merged_fields.get("routing_number")
+    account = merged_fields.get("account_number")
     institution = merged_fields.get("institution_number")
-    transit     = merged_fields.get("transit_number")
+    transit = merged_fields.get("transit_number")
 
     if institution and transit and account:
         # Full Canadian three-part: institution-transit-account
@@ -706,7 +721,8 @@ async def analyze_invoice(
             print("⚠️ Invalid bank format before normalization:", raw_bank_account)
 
     account_type, country = detect_account_type(raw_bank_account)
-    normalized_bank_account = normalize_account_by_country(country, raw_bank_account)
+    normalized_bank_account = normalize_account_by_country(
+        country, raw_bank_account)
 
     merged_fields["bank_account"] = normalized_bank_account or raw_bank_account
     merged_fields["account_type"] = account_type
@@ -718,7 +734,8 @@ async def analyze_invoice(
         and account_type == "iban"
         and country == "OTHER"
     ):
-        external_verification = verify_iban_external(merged_fields["bank_account"])
+        external_verification = verify_iban_external(
+            merged_fields["bank_account"])
 
     # ── BANK VERIFICATION ──
     bank_result = verify_vendor_bank_account(
@@ -740,7 +757,8 @@ async def analyze_invoice(
         k: v for k, v in (prepared_preview or {}).items()
         if k != "image_bgr"
     } if prepared_preview else None
-    shared_image = prepared_preview.get("image_bgr") if prepared_preview else None
+    shared_image = prepared_preview.get(
+        "image_bgr") if prepared_preview else None
 
     # ── FORENSICS ──
     forensics_result = run_forensics_analysis(
@@ -791,14 +809,31 @@ async def analyze_invoice(
         prediction=prediction,
         confidence=confidence,
         model_version="layoutlmv3-isolation-forest",
+        file_type=file_type,
+
         crypto_json=crypto,
         ai_json=ai_result,
         rules_json=rules_result,
-        semantic_json=merged_fields
+        semantic_json=merged_fields,
+
+        vendor_bank_json=bank_result,
+        external_verification_json=external_verification,
+
+        forensics_json=forensics_result,
+        ai_artifact_json=ai_artifact_result,
+        preview_json=preview,
+
+        highlights_json=highlights_bundle["all"],
+        spatial_highlights_json=highlights_bundle["spatial"],
+        document_highlights_json=highlights_bundle["document"],
+        highlight_summary_json=highlights_bundle["summary"],
+
+        scoring_json=None,  # replace with real scoring object if/when you compute it
     )
 
     db.add(analysis)
     db.commit()
+    db.refresh(analysis)
 
     # ── RESPONSE ──
     return {
