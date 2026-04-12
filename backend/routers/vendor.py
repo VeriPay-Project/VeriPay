@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -27,6 +27,7 @@ from models.vendor_bank_binding import VendorBankBinding
 from dependencies import get_db, get_current_user
 from models.user import User
 from schemas.vendor import PlaidLinkTokenResponse, PlaidPublicTokenExchangeRequest
+from services.audit_service import log_event
 
 router = APIRouter(
     prefix="/vendors",
@@ -68,9 +69,10 @@ def _build_validation_payload(
     return {"routing": None, "iban": None}
 
 
-def _get_vendor_or_404(db: Session, vendor_id: int) -> Vendor:
+def _get_vendor_or_404(db: Session, vendor_id: int, user: "User") -> Vendor:
     vendor = db.query(Vendor).filter(
-        Vendor.vendor_id == vendor_id
+        Vendor.vendor_id == vendor_id,
+        Vendor.user_id == user.id,
     ).first()
 
     if not vendor:
@@ -110,6 +112,7 @@ def _build_plaid_account_identifier(
 # =========================
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def register_vendor(
+    request: Request,
     user: User = Depends(get_current_user),
     vendor_name: str = Form(...),
     certificate: UploadFile | None = File(None),
@@ -153,10 +156,19 @@ async def register_vendor(
     vendor = Vendor(
         vendor_name=vendor_name,
         public_key_fingerprint=fingerprint,
-        status="active"
+        status="active",
+        user_id=user.id,
     )
 
     db.add(vendor)
+    db.flush()
+
+    log_event(
+        db, action="create_vendor", user_id=user.id,
+        resource_type="vendor", resource_id=str(vendor.vendor_id),
+        details={"vendor_name": vendor_name, "has_certificate": fingerprint is not None},
+        request=request,
+    )
     db.commit()
     db.refresh(vendor)
 
@@ -172,12 +184,13 @@ async def register_vendor(
 # =========================
 @router.post("/{vendor_id}/bank-binding")
 def register_vendor_bank_binding(
+    request: Request,
     vendor_id: int,
     payload: dict,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    vendor = _get_vendor_or_404(db, vendor_id)
+    vendor = _get_vendor_or_404(db, vendor_id, user)
 
     account_identifier = payload.get("account_identifier")
     requested_country = _normalize_country(payload.get("country"))
@@ -286,6 +299,20 @@ def register_vendor_bank_binding(
     )
 
     db.add(binding)
+    db.flush()
+
+    log_event(
+        db, action="add_bank_binding", user_id=user.id,
+        resource_type="bank_binding", resource_id=str(binding.id),
+        details={
+            "vendor_id": vendor_id,
+            "masked_account": masked_account,
+            "country": country,
+            "account_type": account_type,
+            "verification_method": binding.verification_reference,
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(binding)
 
@@ -310,7 +337,7 @@ def create_vendor_plaid_link_token(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_vendor_or_404(db, vendor_id)
+    _get_vendor_or_404(db, vendor_id, user)
 
     try:
         link_token = create_link_token(f"vendor-{vendor_id}-user-{user.id}")
@@ -325,12 +352,13 @@ def create_vendor_plaid_link_token(
 # =========================
 @router.post("/{vendor_id}/plaid/exchange", status_code=status.HTTP_200_OK)
 def exchange_vendor_plaid_token(
+    request: Request,
     vendor_id: int,
     payload: PlaidPublicTokenExchangeRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_vendor_or_404(db, vendor_id)
+    _get_vendor_or_404(db, vendor_id, user)
 
     try:
         exchange_result = exchange_public_token(payload.public_token)
@@ -339,12 +367,7 @@ def exchange_vendor_plaid_token(
     except PlaidServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    # Plaid sandbox uses fixed test accounts like:
-    # routing: 021000021
-    # account: 1111222233330000
-    # You MUST use the same values in invoice testing
     if DEV_MODE_OVERRIDE_BANK and country in {"US", "CA"} and routing_number:
-        print("⚠️ DEV MODE: Overriding Plaid account for testing")
         account_number = "000123456789"
         raw_identifier = f"{routing_number}-{account_number}"
 
@@ -355,10 +378,6 @@ def exchange_vendor_plaid_token(
     account_hash = hash_account(normalized_account)
     masked_account = mask_account(normalized_account)
     bank_name = _clean_text(account_data.get("bank_name"))
-    print("🚀 PLAID STORED ACCOUNT:")
-    print("Routing:", routing_number)
-    print("Account:", account_number)
-    print("Normalized:", normalized_account)
 
     existing = db.query(VendorBankBinding).filter(
         VendorBankBinding.vendor_id == vendor_id,
@@ -367,7 +386,6 @@ def exchange_vendor_plaid_token(
     ).first()
 
     if existing:
-        # Refresh normalized storage on every Plaid re-link and backfill old rows.
         existing.account_normalized = normalized_account
         existing.account_hash = account_hash
         existing.account_masked = masked_account
@@ -377,9 +395,15 @@ def exchange_vendor_plaid_token(
         existing.verification_status = "verified"
         existing.verification_reference = "plaid"
         existing.is_active = True
+        log_event(
+            db, action="add_bank_binding", user_id=user.id,
+            resource_type="bank_binding", resource_id=str(existing.id),
+            details={"vendor_id": vendor_id, "masked_account": masked_account,
+                     "country": country, "verification_method": "plaid", "re_linked": True},
+            request=request,
+        )
         db.commit()
         db.refresh(existing)
-        print("🧪 MATCHING INVOICE INPUT:", get_test_invoice_from_binding(existing))
         return {
             "status": "registered",
             "vendor_id": vendor_id,
@@ -404,9 +428,16 @@ def exchange_vendor_plaid_token(
     )
 
     db.add(binding)
+    db.flush()
+    log_event(
+        db, action="add_bank_binding", user_id=user.id,
+        resource_type="bank_binding", resource_id=str(binding.id),
+        details={"vendor_id": vendor_id, "masked_account": masked_account,
+                 "country": country, "verification_method": "plaid"},
+        request=request,
+    )
     db.commit()
     db.refresh(binding)
-    print("🧪 MATCHING INVOICE INPUT:", get_test_invoice_from_binding(binding))
 
     return {
         "status": "registered",
@@ -426,15 +457,7 @@ def get_vendor(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    vendor = db.query(Vendor).filter(
-        Vendor.vendor_id == vendor_id
-    ).first()
-
-    if not vendor:
-        raise HTTPException(
-            status_code=404,
-            detail="Vendor not found"
-        )
+    vendor = _get_vendor_or_404(db, vendor_id, user)
 
     return {
         "vendor_id": vendor.vendor_id,
@@ -453,15 +476,7 @@ def get_vendor_bank_bindings(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    vendor = db.query(Vendor).filter(
-        Vendor.vendor_id == vendor_id
-    ).first()
-
-    if not vendor:
-        raise HTTPException(
-            status_code=404,
-            detail="Vendor not found"
-        )
+    _get_vendor_or_404(db, vendor_id, user)
 
     bindings = db.query(VendorBankBinding).filter(
         VendorBankBinding.vendor_id == vendor_id
@@ -493,7 +508,7 @@ def list_vendors(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    vendors = db.query(Vendor).all()
+    vendors = db.query(Vendor).filter(Vendor.user_id == user.id).all()
 
     return [
         {

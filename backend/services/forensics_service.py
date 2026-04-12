@@ -46,7 +46,7 @@ CALIBRATION_CONFIG = {
     # Per-signal thresholds (from calibration data)
     "thresholds": {
         "font":      0.006,
-        "copy_move": 1.000,   # effectively disabled — useless on dataset
+        "copy_move": 0.60,    # re-enabled at conservative threshold (was 1.0)
         "metadata":  0.40,
         "text":      0.25,
         "dct":       0.35,
@@ -55,14 +55,17 @@ CALIBRATION_CONFIG = {
     },
 
     # Confidence-weighted blend weights
+    # copy_move & dct were originally 0.0 (copy_move maxed at 1.0 on both
+    # classes; dct scored 0.0 on both). Re-enabled at minimal weight so they
+    # can still flag extreme outliers without dominating the score.
     "weights": {
         "ela":       0.35,
         "noise":     0.25,
         "font":      0.20,
         "text":      0.15,
         "metadata":  0.05,
-        "copy_move": 0.00,   # demoted — maxes at 1.0 on both classes
-        "dct":       0.00,   # demoted — scored 0.0 on both classes
+        "copy_move": 0.05,
+        "dct":       0.05,
     },
 
     # Co-occurrence boosts when multiple signals fire together
@@ -892,6 +895,7 @@ def run_forensics_analysis(
     file_type: str = "pdf",
     *,
     image: Optional[np.ndarray] = None,
+    all_pages: Optional[list[np.ndarray]] = None,
     advanced: bool = False,
 ) -> dict[str, Any]:
     """
@@ -900,20 +904,31 @@ def run_forensics_analysis(
     Args:
         file_path:  Path to the invoice file.
         file_type:  "pdf" or "image".
-        image:      Optional pre-rendered numpy image (BGR). If provided,
-                    skips internal image loading — use this when image_service
-                    has already rendered the preview to avoid double-rendering.
+        image:      Optional pre-rendered numpy image (BGR) for page 1.
+                    Skips internal image loading when provided.
+        all_pages:  Optional list of BGR arrays for multi-page forensics.
+                    When provided, forensics runs on every page and results
+                    are merged (worst-case scores kept).
         advanced:   Force advanced analysis (DCT + copy-move) even if core
                     score is below the trigger threshold.
     """
     logger.info("Forensics: analyzing %s (%s)", file_path, file_type)
 
-    image_reason: Optional[str] = None
-
-    if image is None:
-        image, image_reason = _load_image(file_path, file_type)
+    # Build the list of page images to analyse
+    if all_pages and len(all_pages) > 1:
+        pages_to_analyze = all_pages
+    elif image is not None:
+        pages_to_analyze = [image]
     else:
-        image_reason = "shared_preview_pipeline"
+        loaded, _reason = _load_image(file_path, file_type)
+        pages_to_analyze = [loaded] if loaded is not None else []
+
+    if not pages_to_analyze:
+        # No images at all — fall through with image=None for text-only checks
+        pages_to_analyze = [None]
+
+    image = pages_to_analyze[0]
+    image_reason = "shared_preview_pipeline" if image is not None else None
 
     image_analyzed = image is not None
     input_quality, quality_warnings = _assess_input_quality(file_path, image)
@@ -943,6 +958,26 @@ def run_forensics_analysis(
     else:
         layers["dct"]       = {**no_image_layer, "name": "dct"}
         layers["copy_move"] = {**no_image_layer, "name": "copy_move"}
+
+    # ── Multi-page: run image-based checks on remaining pages ────────────────
+    if len(pages_to_analyze) > 1:
+        for page_idx, page_img in enumerate(pages_to_analyze[1:], start=2):
+            if page_img is None:
+                continue
+            pq, _ = _assess_input_quality(file_path, page_img)
+            for layer_name, analyzer in [
+                ("ela", _analyze_ela), ("noise", _analyze_noise),
+            ]:
+                page_result = analyzer(page_img, pq)
+                if page_result.get("score", 0) > layers[layer_name].get("score", 0):
+                    layers[layer_name] = page_result
+            if run_advanced:
+                for layer_name, analyzer in [
+                    ("dct", _analyze_dct), ("copy_move", _analyze_copy_move),
+                ]:
+                    page_result = analyzer(page_img, pq)
+                    if page_result.get("score", 0) > layers[layer_name].get("score", 0):
+                        layers[layer_name] = page_result
 
     # ── Scoring ───────────────────────────────────────────────────────────────
     base_score = _compute_score(layers)

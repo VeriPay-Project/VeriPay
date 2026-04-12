@@ -25,33 +25,32 @@ export type ForensicLayerScore = {
 
 export type ForensicsResult = {
     status: string
-    forensic_score?: number
-    risk_level?: string
+    forensic_score: number
+    risk_level: string
     risk_reasons?: string[]
     input_quality?: number
     quality_warnings?: string[]
     advanced_used?: boolean
 
     // Flat per-layer scores (for score bars in UI)
-    metadata_score?: number
-    ela_score?: number
-    noise_score?: number
-    dct_score?: number
-    copy_move_score?: number
-    font_score?: number
-    text_region_score?: number
+    metadata_score: number
+    ela_score: number
+    noise_score: number
+    dct_score: number
+    copy_move_score: number
+    font_score: number
+    text_region_score: number
 
     // Full layer breakdown (for debug / expanded UI)
     layer_scores?: Record<string, ForensicLayerScore>
 
-    image_analyzed?: boolean
+    image_analyzed: boolean
     image_reason?: string
 
     signals: ForensicSignal[]
-    // might need to undo
-    highlights?: Highlight[]
-    spatial_highlights?: Highlight[]
-    document_highlights?: Highlight[]   // backward compat = spatial + document
+    spatial_highlights: Highlight[]
+    document_highlights: Highlight[]
+    highlights: Highlight[]   // backward compat = spatial + document
 }
 
 export type AIArtifactResult = {
@@ -111,6 +110,7 @@ export type CryptoResult = {
 
 export type VendorBankResult = {
     vendor_identity_status?: string | null
+    bank_account_detected?: boolean | null
     verification_status?: string | null
     status?: string | null
     masked_account?: string | null

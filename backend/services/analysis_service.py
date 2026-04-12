@@ -1,17 +1,52 @@
+import hashlib
 import json
-import pickle
+import logging
 from pathlib import Path
 import sys
 import shutil
 
+import joblib
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 AI_PIPELINE_DIR = Path(__file__).resolve().parents[2] / "ai_pipeline"
-MODEL_PATH = AI_PIPELINE_DIR / "saved_models" / "anomaly_model.pkl"
+MODEL_PATH = AI_PIPELINE_DIR / "saved_models" / "anomaly_model.joblib"
+MODEL_HASH_PATH = AI_PIPELINE_DIR / "saved_models" / "anomaly_model.joblib.sha256"
 STATS_PATH = AI_PIPELINE_DIR / "saved_models" / "embedding_stats.json"
 
 if str(AI_PIPELINE_DIR) not in sys.path:
     sys.path.append(str(AI_PIPELINE_DIR))
+
+# ── Module-level model cache ─────────────────────────────────────────────────
+_cached_detector = None
+
+
+def _load_detector():
+    """Load and cache the anomaly detector with SHA256 integrity check."""
+    global _cached_detector
+    if _cached_detector is not None:
+        return _cached_detector
+
+    if not MODEL_PATH.exists():
+        raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
+
+    if not MODEL_HASH_PATH.exists():
+        raise FileNotFoundError(f"Model hash file not found: {MODEL_HASH_PATH}")
+
+    expected_hash = MODEL_HASH_PATH.read_text().strip()
+    actual_hash = hashlib.sha256(MODEL_PATH.read_bytes()).hexdigest()
+
+    if actual_hash != expected_hash:
+        raise ValueError(
+            f"Model file integrity check failed. "
+            f"Expected SHA256 {expected_hash}, got {actual_hash}. "
+            "The model file may have been tampered with."
+        )
+
+    _cached_detector = joblib.load(MODEL_PATH)
+    logger.info("Anomaly detector loaded and verified (SHA256 OK).")
+    return _cached_detector
 
 
 def run_ai_analysis(invoice_path: str) -> dict:
@@ -22,7 +57,10 @@ def run_ai_analysis(invoice_path: str) -> dict:
             "message": "Tesseract OCR is not installed. Run: brew install tesseract"
         }
 
-    if not shutil.which("pdftoppm"):
+    file_ext = Path(invoice_path).suffix.lower()
+    is_image = file_ext in {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"}
+
+    if not is_image and not shutil.which("pdftoppm"):
         return {
             "status": "error",
             "message": "Poppler is not installed. Run: brew install poppler"
@@ -41,8 +79,16 @@ def run_ai_analysis(invoice_path: str) -> dict:
 
     pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
-    with open(MODEL_PATH, "rb") as f:
-        detector = pickle.load(f)
+    try:
+        detector = _load_detector()
+    except (FileNotFoundError, ValueError) as exc:
+        logger.error("Failed to load anomaly model: %s", exc)
+        return {
+            "status": "model_load_failed",
+            "prediction": -1,
+            "confidence": 0,
+            "message": str(exc)
+        }
 
     with open(STATS_PATH, "r") as f:
         stats = json.load(f)
