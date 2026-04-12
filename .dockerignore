@@ -1,6 +1,7 @@
 .git
 .DS_Store
 venv
+.venv
 backend/.env
 frontend/.next
 frontend/node_modules
