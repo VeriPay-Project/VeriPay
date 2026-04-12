@@ -4,7 +4,10 @@ import os
 import re
 
 
-BANK_HASH_SECRET = os.getenv("BANK_HASH_SECRET", "dev-bank-secret").encode("utf-8")
+_bank_hash_secret_str = os.getenv("BANK_HASH_SECRET")
+if not _bank_hash_secret_str:
+    raise RuntimeError("BANK_HASH_SECRET environment variable is required")
+BANK_HASH_SECRET = _bank_hash_secret_str.encode("utf-8")
 _IBAN_RE = re.compile(r"^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$")
 
 

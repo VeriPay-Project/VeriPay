@@ -47,6 +47,72 @@ def validate_us_routing(routing: str) -> bool:
     return checksum % 10 == 0
 
 
+# Known Canadian financial institution numbers
+# Source: Payments Canada / CPA member list
+KNOWN_CA_INSTITUTIONS: set[str] = {
+    "001",  # BMO
+    "002",  # BNS (Scotiabank)
+    "003",  # RBC
+    "004",  # TD
+    "006",  # NBC (National Bank of Canada)
+    "010",  # CIBC
+    "016",  # HSBC Canada
+    "030",  # CIBC / Simplii Financial
+    "039",  # Laurentian Bank
+    "219",  # ATB Financial
+    "310",  # PC Financial
+    "614",  # Tangerine
+    "815",  # Desjardins
+    "828",  # Central 1 Credit Union
+    "829",  # QCU (Québec Credit Unions)
+    "837",  # Meridian Credit Union
+    "839",  # ACU (Atlantic Credit Union)
+    "865",  # Motus Bank
+    "879",  # DC Payments
+    "899",  # CWB (Canadian Western Bank)
+}
+
+
+def validate_canadian_account(parsed: dict) -> dict:
+    """
+    Validate a Canadian bank account.
+    Expects parsed to contain: institution, transit, account.
+    """
+    errors = []
+
+    institution = str(parsed.get("institution") or "").strip()
+    transit = str(parsed.get("transit") or "").strip()
+    account = str(parsed.get("account") or "").strip()
+
+    # Institution number: exactly 3 digits
+    if not re.fullmatch(r"\d{3}", institution):
+        errors.append(
+            f"Institution number must be exactly 3 digits, got '{institution}'"
+        )
+    elif institution not in KNOWN_CA_INSTITUTIONS:
+        errors.append(
+            f"Unrecognized institution number '{institution}'. "
+            "Not in the known Canadian financial institutions list."
+        )
+
+    # Transit number: exactly 5 digits
+    if not re.fullmatch(r"\d{5}", transit):
+        errors.append(
+            f"Transit number must be exactly 5 digits, got '{transit}'"
+        )
+
+    # Account number: 7–12 digits
+    if not re.fullmatch(r"\d{7,12}", account):
+        errors.append(
+            f"Account number must be 7-12 digits, got '{account}'"
+        )
+
+    if errors:
+        return {"valid": False, "reason": "; ".join(errors)}
+
+    return {"valid": True, "reason": None}
+
+
 def validate_account(country: str, parsed: dict) -> dict:
     """
     Main validation entry
@@ -68,11 +134,7 @@ def validate_account(country: str, parsed: dict) -> dict:
         }
 
     if country == "CA":
-        # For now: basic structure already validated
-        return {
-            "valid": True,
-            "reason": None
-        }
+        return validate_canadian_account(parsed)
 
     return {
         "valid": False,

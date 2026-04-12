@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select"
 import {
   ShieldCheck,
+  ShieldAlert,
   Brain,
   ClipboardCheck,
   Play,
@@ -30,24 +31,20 @@ import {
   ChevronDown,
   ChevronUp,
   Sparkles,
+  Scale,
+  CheckCircle2,
+  XCircle,
+  Flag,
+  ArrowUpCircle,
+  Send,
 } from "lucide-react"
 
-import { ScoringCard } from "@/components/analysis/ScoringCard"
-import { ForensicsCard } from "@/components/analysis/ForensicsCard"
-import { AiArtifactCard } from "@/components/analysis/AiArtifactCard"
-import { InvoiceHighlightViewer } from "@/components/analysis/InvoiceHighlightViewer"
-
-import type { AnalysisResult } from "@/components/analysis/types"
-
-
 const API_BASE =
-process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                             */
 /* ------------------------------------------------------------------ */
-
-import { normalizeAnalysisResult } from "@/components/analysis/normalize"
 
 type InvoiceSummary = {
   invoice_id: number
@@ -76,185 +73,213 @@ type ForensicLayerScore = {
   triggered: boolean
 }
 
-// type AnalysisResult = {
-//   invoice_id: number
-//   file_type: string
+type AnalysisResult = {
+  invoice_id: number
+  file_type: string
 
-//   crypto: {
-//     signature_present: boolean
-//     signature_integrity: string
-//     certificate_trust: string
-//     signer_fingerprint: string | null
-//     vendor_status?: string
-//     signer_identity?: string
-//   }
+  crypto: {
+    signature_present: boolean
+    signature_integrity: string
+    certificate_trust: string
+    signer_fingerprint: string | null
+    vendor_status?: string
+    signer_identity?: string
+  }
 
-//   ai: {
-//     status: string
-//     message?: string
-//     anomaly_score?: number
-//     risk_level?: string
-//     review_required?: boolean
-//     embedding_distance?: number
-//     distance_z_score?: number
-//     explanations?: string[]
-//   }
+  ai: {
+    status: string
+    message?: string
+    anomaly_score?: number
+    risk_level?: string
+    review_required?: boolean
+    embedding_distance?: number
+    distance_z_score?: number
+    explanations?: string[]
+  }
 
-//   rules: {
-//     status: string
-//     message?: string
-//     word_count?: number
-//     font_count?: number
-//     fonts?: string[]
-//     line_item_count?: number
-//     line_item_sum?: number | null
-//     subtotal?: number | null
-//     tax?: number | null
-//     total?: number | null
-//     checks?: {
-//       subtotal_matches_items?: boolean | null
-//       subtotal_delta?: number | null
-//       total_matches_subtotal_tax?: boolean | null
-//       total_delta?: number | null
-//     }
-//   }
+  rules: {
+    status: string
+    message?: string
+    word_count?: number
+    font_count?: number
+    fonts?: string[]
+    line_item_count?: number
+    line_item_sum?: number | null
+    subtotal?: number | null
+    tax?: number | null
+    total?: number | null
+    checks?: {
+      subtotal_matches_items?: boolean | null
+      subtotal_delta?: number | null
+      total_matches_subtotal_tax?: boolean | null
+      total_delta?: number | null
+    }
+  }
 
-//   vendor_identity?: {
-//     status: string
-//     vendor_name?: string
-//   }
+  vendor_identity?: {
+    status: string
+    vendor_name?: string
+  }
 
-//   vendor_bank?: {
-//     bank_account_detected?: boolean
-//     status?: string
-//     masked_account?: string
-//     bank_name?: string
-//     verification_status?: string
-//     vendor_identity_status?: string
-//     country?: string | null
-//     account_type?: string | null
-//   }
+  vendor_bank?: {
+    bank_account_detected?: boolean
+    status?: string
+    masked_account?: string
+    bank_name?: string
+    verification_status?: string
+    vendor_identity_status?: string
+    country?: string | null
+    account_type?: string | null
+  }
 
-//   issuer_payee_binding?: {
-//     status?: string
-//     flags?: string[]
-//     vendor_name?: string
-//   }
+  issuer_payee_binding?: {
+    status?: string
+    flags?: string[]
+    vendor_name?: string
+  }
 
-//   external_verification?: {
-//     success?: boolean
-//     bank_name?: string
-//     bic?: string
-//     country?: string
-//     confidence?: string
-//   }
+  external_verification?: {
+    success?: boolean
+    bank_name?: string
+    bic?: string
+    country?: string
+    confidence?: string
+  }
 
-//   semantic?: {
-//     vendor_name?: string | null
-//     customer_name?: string | null
-//     invoice_date?: string | null
-//     invoice_number?: string | null
-//     subtotal?: string | number | null
-//     tax?: string | number | null
-//     total_amount?: string | number | null
-//     currency?: string | null
-//     bank_name?: string | null
-//     bank_account?: string | null
-//   }
+  semantic?: {
+    vendor_name?: string | null
+    customer_name?: string | null
+    invoice_date?: string | null
+    invoice_number?: string | null
+    subtotal?: string | number | null
+    tax?: string | number | null
+    total_amount?: string | number | null
+    currency?: string | null
+    bank_name?: string | null
+    bank_account?: string | null
+  }
 
-//   semantic_vendor_name?: string | null
-//   semantic_customer_name?: string | null
-//   semantic_invoice_date?: string | null
-//   semantic_invoice_number?: string | null
-//   semantic_subtotal?: string | null
-//   semantic_tax?: string | null
-//   semantic_total_amount?: string | null
-//   semantic_currency?: string | null
-//   semantic_bank_name?: string | null
-//   semantic_bank_account?: string | null
+  semantic_vendor_name?: string | null
+  semantic_customer_name?: string | null
+  semantic_invoice_date?: string | null
+  semantic_invoice_number?: string | null
+  semantic_subtotal?: string | null
+  semantic_tax?: string | null
+  semantic_total_amount?: string | null
+  semantic_currency?: string | null
+  semantic_bank_name?: string | null
+  semantic_bank_account?: string | null
 
-//   preview?: {
-//     image_path: string
-//     width: number
-//     height: number
-//     page?: number
-//     total_pages?: number
-//     dpi?: number | null
-//     source_type?: string
-//     loader?: string
-//   }
+  preview?: {
+    image_path: string
+    width: number
+    height: number
+    page?: number
+    total_pages?: number
+    dpi?: number | null
+    source_type?: string
+    loader?: string
+  }
 
-//   highlights?: Highlight[]
-//   spatial_highlights?: Highlight[]
-//   document_highlights?: Highlight[]
+  highlights?: Highlight[]
+  spatial_highlights?: Highlight[]
+  document_highlights?: Highlight[]
 
-//   highlight_summary?: {
-//     total: number
-//     spatial_count: number
-//     document_count: number
-//     top_confidence: number
-//     sources?: string[]
-//   }
+  highlight_summary?: {
+    total: number
+    spatial_count: number
+    document_count: number
+    top_confidence: number
+    sources?: string[]
+  }
 
-//   forensics?: {
-//     status: string
-//     risk_level?: string
-//     forensic_score?: number
-//     // Cross-signal boost reasons from the calibrated engine
-//     risk_reasons?: string[]
-//     // Input quality from _assess_input_quality
-//     input_quality?: number
-//     quality_warnings?: string[]
-//     advanced_used?: boolean
-//     // Flat per-layer scores (for score bars)
-//     metadata_score?: number
-//     ela_score?: number
-//     noise_score?: number
-//     dct_score?: number
-//     copy_move_score?: number
-//     font_score?: number
-//     text_region_score?: number
-//     // Full layer breakdown with confidence + triggered flag
-//     layer_scores?: Record<string, ForensicLayerScore>
-//     image_analyzed?: boolean
-//     image_reason?: string
-//     signals?: {
-//       type: string
-//       message: string
-//       confidence: number
-//     }[]
-//   }
+  forensics?: {
+    status: string
+    risk_level?: string
+    forensic_score?: number
+    // Cross-signal boost reasons from the calibrated engine
+    risk_reasons?: string[]
+    // Input quality from _assess_input_quality
+    input_quality?: number
+    quality_warnings?: string[]
+    advanced_used?: boolean
+    // Flat per-layer scores (for score bars)
+    metadata_score?: number
+    ela_score?: number
+    noise_score?: number
+    dct_score?: number
+    copy_move_score?: number
+    font_score?: number
+    text_region_score?: number
+    // Full layer breakdown with confidence + triggered flag
+    layer_scores?: Record<string, ForensicLayerScore>
+    image_analyzed?: boolean
+    image_reason?: string
+    signals?: {
+      type: string
+      message: string
+      confidence: number
+    }[]
+  }
 
-//   ai_artifact?: {
-//     status: string
-//     ai_text_score: number
-//     risk_level?: string
-//     reasoning?: string
-//     perplexity_risk?: number
-//     burstiness_risk?: number
-//     repetition_score?: number
-//     signals?: {
-//       type: string
-//       message: string
-//       confidence?: number
-//     }[]
-//     reason?: string
-//   }
+  ai_artifact?: {
+    status: string
+    ai_text_score: number
+    risk_level?: string
+    reasoning?: string
+    perplexity_risk?: number
+    burstiness_risk?: number
+    repetition_score?: number
+    signals?: {
+      type: string
+      message: string
+      confidence?: number
+    }[]
+    reason?: string
+  }
 
-//   scoring?: {
-//     fraud_score: number
-//     risk_level: string
-//     prediction: number
-//     model_version: string
-//     score_breakdown?: Record<string, number>
-//     weights_used?: Record<string, number>
-//   }
+  scoring?: {
+    fraud_score: number
+    risk_level: string
+    prediction: number
+    model_version: string
+    score_breakdown?: Record<string, number>
+    weights_used?: Record<string, number>
+  }
 
-//   fraud_flags?: {
-//     rule_code: string
-//     message: string
-//   }[]
-// }
+  ensemble_fraud_score?: {
+    fraud_score: number
+    risk_level: string
+    score_breakdown: Record<
+      string,
+      {
+        score: number
+        weight: number
+        weighted: number
+        reason: string
+      }
+    >
+    amplifiers_applied: string[]
+    explanation: string
+  }
+
+  fraud_flags?: {
+    rule_code: string
+    message: string
+  }[]
+}
+
+type ReviewData = {
+  id: number
+  invoice_id: number
+  user_id: number
+  reviewer_name: string | null
+  decision: string
+  confidence: string | null
+  description: string
+  reviewed_at: string
+  updated_at: string
+}
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
@@ -506,8 +531,8 @@ function CryptoTrustBar({ trust }: { trust?: string }) {
 
 function SkeletonCard() {
   return (
-    <Card className="h-full border-0 bg-card/65 shadow-sm backdrop-blur-xl">
-      <CardContent className="flex h-full flex-col gap-4 p-6">
+    <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl">
+      <CardContent className="flex flex-col gap-4 p-6">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 animate-pulse rounded-xl bg-muted" />
           <div className="h-4 w-40 animate-pulse rounded bg-muted" />
@@ -563,6 +588,1015 @@ function getHighlightStyle(color?: string) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Invoice highlight viewer                                          */
+/* ------------------------------------------------------------------ */
+
+function InvoiceHighlightViewer({
+  result,
+}: {
+  result: AnalysisResult
+}) {
+  const [activeIdx, setActiveIdx] = useState(0)
+  const [imgDims, setImgDims] = useState<{ w: number; h: number } | null>(null)
+  const [naturalDims, setNaturalDims] = useState<{ w: number; h: number } | null>(
+    null
+  )
+  const [imageLoadFailed, setImageLoadFailed] = useState(false)
+
+  const allHighlights: Highlight[] =
+    result.highlights && result.highlights.length > 0
+      ? result.highlights
+      : [
+        ...(result.spatial_highlights ?? []),
+        ...(result.document_highlights ?? []),
+      ]
+
+  const bboxHighlights = allHighlights.filter((h) => h.bbox !== null)
+  const docHighlights = allHighlights.filter((h) => h.bbox === null)
+
+  const previewUrl = resolvePreviewUrl(result.preview?.image_path)
+  const hasPreview = Boolean(previewUrl && !imageLoadFailed)
+
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget
+    setImgDims({ w: img.clientWidth, h: img.clientHeight })
+    setNaturalDims({
+      w: result.preview?.width || img.naturalWidth,
+      h: result.preview?.height || img.naturalHeight,
+    })
+  }
+
+  const handleImageError = () => {
+    setImageLoadFailed(true)
+    setImgDims(null)
+    setNaturalDims(null)
+  }
+
+  const scaleBox = (bbox: [number, number, number, number]) => {
+    if (!imgDims || !naturalDims) return null
+
+    const scaleX = imgDims.w / naturalDims.w
+    const scaleY = imgDims.h / naturalDims.h
+
+    return {
+      left: bbox[0] * scaleX,
+      top: bbox[1] * scaleY,
+      width: bbox[2] * scaleX,
+      height: bbox[3] * scaleY,
+    }
+  }
+
+  return (
+    <div className="grid items-start gap-6 lg:grid-cols-[1fr_320px]">
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div className="rounded-lg bg-muted/50 px-3 py-2 text-[10px] text-muted-foreground">
+          <span className="font-medium text-foreground">
+            {(result.preview?.source_type ?? result.file_type).toUpperCase()}
+          </span>
+          {result.preview?.total_pages ? (
+            <>
+              {" · "}
+              Page {result.preview.page ?? 1} of {result.preview.total_pages}
+            </>
+          ) : null}
+          {result.preview?.width && result.preview?.height ? (
+            <>
+              {" · "}
+              {result.preview.width}×{result.preview.height}
+            </>
+          ) : null}
+          {result.preview?.loader ? (
+            <>
+              {" · "}
+              {result.preview.loader}
+            </>
+          ) : null}
+        </div>
+
+        <div className="relative overflow-hidden rounded-lg border border-border/40 bg-black/5">
+          {hasPreview ? (
+            <div className="relative max-h-[720px] overflow-auto">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewUrl ?? undefined}
+                alt="Invoice preview"
+                className="h-auto w-full object-contain"
+                onLoad={handleImageLoad}
+                onError={handleImageError}
+              />
+
+              {imgDims &&
+                naturalDims &&
+                bboxHighlights.map((hl, idx) => {
+                  if (!hl.bbox) return null
+
+                  const scaled = scaleBox(hl.bbox)
+                  if (!scaled) return null
+
+                  const style = getHighlightStyle(hl.color)
+                  const isActive = activeIdx === idx
+
+                  return (
+                    <div
+                      key={idx}
+                      className={`absolute cursor-pointer rounded-sm border-2 transition-all duration-150 hover:scale-[1.01]
+                        ${style.border} ${style.bg}
+                        ${isActive
+                          ? "opacity-100 ring-2 ring-current ring-offset-1"
+                          : "opacity-70 hover:opacity-100"
+                        }
+                      `}
+                      style={{
+                        left: scaled.left,
+                        top: scaled.top,
+                        width: scaled.width,
+                        height: scaled.height,
+                        zIndex: isActive ? 20 : 10,
+                      }}
+                      onClick={() => setActiveIdx(isActive ? -1 : idx)}
+                      title={hl.message}
+                    >
+                      {isActive && (
+                        <span
+                          className={`absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold ${style.label}`}
+                        >
+                          {hl.type.replace(/_/g, " ")}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+            </div>
+          ) : (
+            <div className="flex min-h-[360px] items-center justify-center px-6 py-10 text-center">
+              <div className="flex max-w-sm flex-col items-center gap-2">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
+                  <AlertTriangle className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium text-foreground">
+                  {previewUrl ? "Preview unavailable" : "Preview not generated"}
+                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {previewUrl
+                    ? "The analysis completed, but the returned preview image could not be loaded."
+                    : "The invoice preview could not be generated for this analysis run."}
+                </p>
+                {result.forensics?.image_reason && (
+                  <p className="rounded-lg bg-muted/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                    {result.forensics.image_reason}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex w-full flex-col gap-3 overflow-y-auto pr-1 lg:max-h-[720px]">
+        <div className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{allHighlights.length}</span>{" "}
+          signal{allHighlights.length !== 1 ? "s" : ""} detected
+          {" · "}
+          <span className="font-medium text-foreground">
+            {bboxHighlights.length}
+          </span>{" "}
+          with region
+        </div>
+
+        <div className="flex flex-wrap gap-2 text-[10px]">
+          {(["red", "amber", "blue", "coral"] as const).map((c) => (
+            <span key={c} className="flex items-center gap-1">
+              <span className={`h-2 w-2 rounded-sm ${HIGHLIGHT_STYLES[c].dot}`} />
+              <span className="text-muted-foreground capitalize">
+                {c === "red"
+                  ? "Manipulation"
+                  : c === "amber"
+                    ? "AI artifact"
+                    : c === "blue"
+                      ? "Forensic"
+                      : "Rules"}
+              </span>
+            </span>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          {bboxHighlights.length > 0 && !hasPreview && (
+            <div className="rounded-lg border border-border/40 bg-background px-3 py-3 text-[10px] leading-relaxed text-muted-foreground">
+              Spatial findings were generated, but the preview image is unavailable so
+              overlays cannot be shown.
+            </div>
+          )}
+
+          {bboxHighlights.length > 0 && (
+            <div className="rounded-lg border border-border/40 bg-muted/30 p-2">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Region findings
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {bboxHighlights.map((hl, idx) => {
+                  const style = getHighlightStyle(hl.color)
+                  const isActive = activeIdx === idx
+
+                  return (
+                    <button
+                      key={`${hl.type}-${idx}`}
+                      className={`w-full rounded-lg border px-3 py-3 text-left transition-all duration-150
+                        ${isActive
+                          ? `${style.border} ${style.bg}`
+                          : "border-border/40 bg-background hover:bg-muted/60"
+                        }`}
+                      onClick={() => setActiveIdx(isActive ? -1 : idx)}
+                    >
+                      <div className="mb-1 flex items-center gap-2">
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`}
+                        />
+                        <span className="text-[11px] font-semibold text-foreground truncate">
+                          {hl.type.replace(/_/g, " ")}
+                        </span>
+                        <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
+                          {(hl.confidence * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-muted-foreground">
+                        {hl.message}
+                      </p>
+                      <p className="mt-1 text-[9px] uppercase tracking-wider text-muted-foreground/60">
+                        {hl.source} · region
+                      </p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {docHighlights.length > 0 && (
+            <div className="rounded-lg border border-border/40 bg-muted/30 p-2">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Document findings
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {docHighlights.map((hl, idx) => {
+                  const style = getHighlightStyle(hl.color)
+
+                  return (
+                    <div
+                      key={`${hl.type}-doc-${idx}`}
+                      className="w-full rounded-lg border border-border/40 bg-background px-3 py-3 text-left"
+                    >
+                      <div className="mb-1 flex items-center gap-2">
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`}
+                        />
+                        <span className="text-[11px] font-semibold text-foreground truncate">
+                          {hl.type.replace(/_/g, " ")}
+                        </span>
+                        <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
+                          {(hl.confidence * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-muted-foreground">
+                        {hl.message}
+                      </p>
+                      <p className="mt-1 text-[9px] uppercase tracking-wider text-muted-foreground/60">
+                        {hl.source} · document
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {result.highlight_summary && (
+            <div className="rounded-lg bg-muted/50 px-3 py-2 text-[10px] text-muted-foreground">
+              Total:{" "}
+              <span className="font-medium text-foreground">
+                {result.highlight_summary.total}
+              </span>
+              {" · "}Spatial:{" "}
+              <span className="font-medium text-foreground">
+                {result.highlight_summary.spatial_count}
+              </span>
+              {" · "}Document:{" "}
+              <span className="font-medium text-foreground">
+                {result.highlight_summary.document_count}
+              </span>
+            </div>
+          )}
+
+          {allHighlights.length === 0 && (
+            <div className="rounded-lg border border-border/40 bg-background px-3 py-4 text-xs text-muted-foreground">
+              No detected signals were generated for this invoice.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Scoring card                                                      */
+/* ------------------------------------------------------------------ */
+
+function ScoringCard({ scoring }: { scoring?: AnalysisResult["scoring"] }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!scoring) return null
+
+  const breakdown = scoring.score_breakdown ?? {}
+
+  return (
+    <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500">
+      <CardContent className="flex flex-col gap-4 p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+              <BarChart3 className="h-5 w-5 text-primary" />
+            </div>
+            <h3 className="text-sm font-semibold text-foreground">
+              Ensemble fraud score
+            </h3>
+          </div>
+          <RiskPill level={scoring.risk_level} />
+        </div>
+
+        <ScoreBar label="Fraud score" score={scoring.fraud_score} invert={false} />
+
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {expanded ? (
+            <ChevronUp className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" />
+          )}
+          {expanded ? "Hide" : "Show"} score breakdown
+        </button>
+
+        {expanded && (
+          <div className="divide-y divide-border/40">
+            {Object.entries(breakdown).map(([key, val]) => (
+              <ScoreBar
+                key={key}
+                label={key.replace(/_/g, " ")}
+                score={val as number}
+                invert={false}
+              />
+            ))}
+          </div>
+        )}
+
+        <div className="rounded-lg bg-muted/50 px-3 py-2 text-[10px] text-muted-foreground">
+          Model:{" "}
+          <span className="font-mono text-foreground">{scoring.model_version}</span>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Forensics card                                                    */
+/* ------------------------------------------------------------------ */
+
+function ForensicsCard({ forensics }: { forensics?: AnalysisResult["forensics"] }) {
+  const [layersExpanded, setLayersExpanded] = useState(false)
+  if (!forensics) return null
+
+  // Use layer_scores for triggered badges if available, fall back to flat scores
+  const ls = forensics.layer_scores
+
+  return (
+    <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500">
+      <CardContent className="flex flex-col gap-4 p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+              <Microscope className="h-5 w-5 text-primary" />
+            </div>
+            <h3 className="text-sm font-semibold text-foreground">
+              Forensic analysis
+            </h3>
+          </div>
+          <RiskPill level={forensics.risk_level} />
+        </div>
+
+        <ScoreBar
+          label="Forensic risk score"
+          score={forensics.forensic_score}
+          invert={false}
+        />
+
+        {/* Per-layer scores with triggered badges */}
+        <div className="divide-y divide-border/40">
+          <ScoreBar
+            label="ELA (recompression)"
+            score={forensics.ela_score}
+            invert={false}
+            triggered={ls?.ela?.triggered}
+          />
+          <ScoreBar
+            label="Font inconsistency"
+            score={forensics.font_score}
+            invert={false}
+            triggered={ls?.font?.triggered}
+          />
+          <ScoreBar
+            label="Noise inconsistency"
+            score={forensics.noise_score}
+            invert={false}
+            triggered={ls?.noise?.triggered}
+          />
+          <ScoreBar
+            label="Text rendering"
+            score={forensics.text_region_score}
+            invert={false}
+            triggered={ls?.text?.triggered}
+          />
+          <ScoreBar
+            label="Metadata anomaly"
+            score={forensics.metadata_score}
+            invert={false}
+            triggered={ls?.metadata?.triggered}
+          />
+        </div>
+
+        {/* Advanced layers — collapsible since they're often 0 */}
+        <button
+          onClick={() => setLayersExpanded((v) => !v)}
+          className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {layersExpanded ? (
+            <ChevronUp className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" />
+          )}
+          {layersExpanded ? "Hide" : "Show"} advanced layers
+          {forensics.advanced_used && (
+            <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
+              ran
+            </span>
+          )}
+        </button>
+
+        {layersExpanded && (
+          <div className="divide-y divide-border/40">
+            <ScoreBar
+              label="DCT artifacts"
+              score={forensics.dct_score}
+              invert={false}
+              triggered={ls?.dct?.triggered}
+            />
+            <ScoreBar
+              label="Copy-move forgery"
+              score={forensics.copy_move_score}
+              invert={false}
+              triggered={ls?.copy_move?.triggered}
+            />
+            {forensics.input_quality !== undefined && (
+              <ScoreBar
+                label="Input quality"
+                score={forensics.input_quality}
+                invert={true}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Risk reasons from cross-signal boosts + tier overrides */}
+        {forensics.risk_reasons && forensics.risk_reasons.length > 0 && (
+          <ul className="flex flex-col gap-1 rounded-lg bg-muted/50 px-3 py-2">
+            <li className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Risk reasons
+            </li>
+            {forensics.risk_reasons.map((reason, idx) => (
+              <li key={idx} className="text-xs leading-relaxed text-muted-foreground">
+                &bull; {reason}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Triggered signal list */}
+        {forensics.signals && forensics.signals.length > 0 && (
+          <ul className="flex flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2">
+            {forensics.signals.map((signal, idx) => (
+              <li key={idx} className="text-xs leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {signal.type.replace(/_/g, " ")}
+                </span>
+                {" — "}
+                {signal.message}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Quality warnings */}
+        {forensics.quality_warnings && forensics.quality_warnings.length > 0 && (
+          <ul className="flex flex-col gap-1 rounded-lg bg-amber-50 px-3 py-2 dark:bg-amber-500/10">
+            {forensics.quality_warnings.map((w, idx) => (
+              <li key={idx} className="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                {w}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {forensics.image_analyzed === false && (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            {forensics.image_reason ??
+              "Visual analysis unavailable — image could not be extracted"}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  AI artifact card                                                  */
+/* ------------------------------------------------------------------ */
+
+function AiArtifactCard({
+  artifact,
+}: {
+  artifact?: AnalysisResult["ai_artifact"]
+}) {
+  if (!artifact) return null
+
+  return (
+    <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500">
+      <CardContent className="flex flex-col gap-4 p-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+            <Sparkles className="h-5 w-5 text-primary" />
+          </div>
+          <h3 className="text-sm font-semibold text-foreground">
+            AI artifact detection
+          </h3>
+        </div>
+
+        {artifact.status === "skipped" || artifact.status === "insufficient_text" ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            {artifact.reason ?? artifact.reasoning ?? "Insufficient text for analysis"}
+          </p>
+        ) : (
+          <>
+            <ScoreBar
+              label="AI text score"
+              score={artifact.ai_text_score}
+              invert={false}
+            />
+
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Risk level
+              </span>
+              <RiskPill level={artifact.risk_level} />
+            </div>
+
+            {(artifact.perplexity_risk !== undefined ||
+              artifact.burstiness_risk !== undefined ||
+              artifact.repetition_score !== undefined) && (
+                <div className="divide-y divide-border/40">
+                  <ScoreBar
+                    label="Perplexity risk"
+                    score={artifact.perplexity_risk}
+                    invert={false}
+                  />
+                  <ScoreBar
+                    label="Burstiness risk"
+                    score={artifact.burstiness_risk}
+                    invert={false}
+                  />
+                  <ScoreBar
+                    label="Repetition"
+                    score={artifact.repetition_score}
+                    invert={false}
+                  />
+                </div>
+              )}
+
+            {artifact.reasoning && (
+              <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                {artifact.reasoning}
+              </p>
+            )}
+
+            {artifact.signals?.length ? (
+              <ul className="flex flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2">
+                {artifact.signals.map((signal, idx) => (
+                  <li
+                    key={idx}
+                    className="text-xs leading-relaxed text-muted-foreground"
+                  >
+                    <span className="font-medium text-foreground">
+                      {signal.type.replace(/_/g, " ")}
+                    </span>
+                    {" — "}
+                    {signal.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Ensemble Fraud Risk Assessment card                               */
+/* ------------------------------------------------------------------ */
+
+function FraudScoreGauge({ score, riskLevel }: { score: number; riskLevel: string }) {
+  const [animated, setAnimated] = useState(0)
+
+  useEffect(() => {
+    const end = Math.min(Math.max(score * 100, 0), 100)
+    const startTime = performance.now()
+    const animate = (now: number) => {
+      const progress = Math.min((now - startTime) / 1200, 1)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setAnimated(end * eased)
+      if (progress < 1) requestAnimationFrame(animate)
+    }
+    requestAnimationFrame(animate)
+  }, [score])
+
+  const pct = animated
+  const circumference = 2 * Math.PI * 54
+  const strokeDashoffset = circumference - (pct / 100) * circumference
+
+  const colorMap: Record<string, string> = {
+    low: "stroke-emerald-500",
+    medium: "stroke-amber-500",
+    high: "stroke-red-500",
+    critical: "stroke-red-700 dark:stroke-red-400",
+  }
+  const bgColorMap: Record<string, string> = {
+    low: "text-emerald-500",
+    medium: "text-amber-500",
+    high: "text-red-500",
+    critical: "text-red-700 dark:text-red-400",
+  }
+  const strokeClass = colorMap[riskLevel] ?? "stroke-muted-foreground"
+  const textClass = bgColorMap[riskLevel] ?? "text-muted-foreground"
+
+  return (
+    <div className="relative flex items-center justify-center">
+      <svg width="128" height="128" viewBox="0 0 128 128" className="-rotate-90">
+        <circle
+          cx="64" cy="64" r="54"
+          fill="none"
+          className="stroke-muted"
+          strokeWidth="8"
+        />
+        <circle
+          cx="64" cy="64" r="54"
+          fill="none"
+          className={strokeClass}
+          strokeWidth="8"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          style={{ transition: "stroke-dashoffset 0.3s" }}
+        />
+      </svg>
+      <div className="absolute flex flex-col items-center">
+        <span className={`text-2xl font-bold ${textClass}`}>
+          {Math.round(pct)}%
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function FraudRiskCard({ ensemble }: { ensemble?: AnalysisResult["ensemble_fraud_score"] }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!ensemble) return null
+
+  const { fraud_score, risk_level, score_breakdown, amplifiers_applied, explanation } = ensemble
+
+  const icon = risk_level === "low" || risk_level === "medium" ? ShieldCheck : ShieldAlert
+  const Icon = icon
+
+  return (
+    <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 lg:col-span-3">
+      <CardContent className="flex flex-col gap-5 p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+              <Icon className="h-5 w-5 text-primary" />
+            </div>
+            <h3 className="text-sm font-semibold text-foreground">
+              Fraud Risk Assessment
+            </h3>
+          </div>
+          <RiskPill level={risk_level} />
+        </div>
+
+        {amplifiers_applied.length > 0 && (
+          <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 dark:bg-red-500/10">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+            <span className="text-xs font-medium text-red-700 dark:text-red-300">
+              Risk amplified: multiple independent fraud signals detected
+            </span>
+          </div>
+        )}
+
+        <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start sm:gap-8">
+          <FraudScoreGauge score={fraud_score} riskLevel={risk_level} />
+
+          <div className="flex flex-1 flex-col gap-2">
+            <p className="text-sm leading-relaxed text-muted-foreground">{explanation}</p>
+
+            {amplifiers_applied.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {amplifiers_applied.map((amp, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-500/20 dark:text-red-300"
+                  >
+                    {amp}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {expanded ? "Hide" : "Show"} score breakdown
+        </button>
+
+        {expanded && (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {Object.entries(score_breakdown).map(([key, info]) => (
+              <div key={key} className="rounded-lg border border-border/40 bg-background p-3">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {key.replace(/_/g, " ")}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {(info.weight * 100).toFixed(0)}% weight
+                  </span>
+                </div>
+                <ScoreBar label="" score={info.score} invert={false} />
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                  {info.reason}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Review & Decision panel                                           */
+/* ------------------------------------------------------------------ */
+
+const DECISION_OPTIONS = [
+  { value: "approved", label: "Approve", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30", icon: CheckCircle2 },
+  { value: "rejected", label: "Reject", color: "text-red-600 dark:text-red-400", bg: "bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30", icon: XCircle },
+  { value: "flagged_for_investigation", label: "Flag for Investigation", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30", icon: Flag },
+  { value: "escalated", label: "Escalate", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-50 dark:bg-purple-500/10 border-purple-200 dark:border-purple-500/30", icon: ArrowUpCircle },
+] as const
+
+const CONFIDENCE_OPTIONS = ["certain", "likely", "uncertain"] as const
+
+const DECISION_BADGE_STYLES: Record<string, string> = {
+  approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+  rejected: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300",
+  flagged_for_investigation: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
+  escalated: "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300",
+}
+
+function ReviewPanel({ invoiceId, existingReview }: { invoiceId: string; existingReview: ReviewData | null }) {
+  const [review, setReview] = useState<ReviewData | null>(existingReview)
+  const [editing, setEditing] = useState(!existingReview)
+  const [decision, setDecision] = useState(existingReview?.decision ?? "")
+  const [confidence, setConfidence] = useState(existingReview?.confidence ?? "")
+  const [description, setDescription] = useState(existingReview?.description ?? "")
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
+
+  const canSubmit = decision && description.trim().length >= 10
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return
+    setSubmitting(true)
+    setError("")
+    setSuccess("")
+
+    try {
+      const res = await fetch(`${API_BASE}/invoices/${invoiceId}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          decision,
+          confidence: confidence || null,
+          description: description.trim(),
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setError(err.detail ?? "Failed to submit review")
+        return
+      }
+
+      const data = await res.json()
+      setReview(data)
+      setEditing(false)
+      setSuccess("Review submitted successfully")
+      setTimeout(() => setSuccess(""), 3000)
+    } catch {
+      setError("Unable to reach the API")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const startEdit = () => {
+    if (review) {
+      setDecision(review.decision)
+      setConfidence(review.confidence ?? "")
+      setDescription(review.description)
+    }
+    setEditing(true)
+    setSuccess("")
+  }
+
+  return (
+    <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 lg:col-span-3">
+      <CardContent className="flex flex-col gap-5 p-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+            <Scale className="h-5 w-5 text-primary" />
+          </div>
+          <h3 className="text-sm font-semibold text-foreground">
+            Review &amp; Decision
+          </h3>
+          {review && !editing && (
+            <span className={`ml-auto inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${DECISION_BADGE_STYLES[review.decision] ?? "bg-muted text-muted-foreground"}`}>
+              {review.decision.replace(/_/g, " ")}
+            </span>
+          )}
+        </div>
+
+        {success && (
+          <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 dark:bg-emerald-500/10">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">{success}</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 dark:bg-red-500/10">
+            <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
+            <span className="text-xs font-medium text-red-700 dark:text-red-300">{error}</span>
+          </div>
+        )}
+
+        {!editing && review ? (
+          <div className="flex flex-col gap-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Decision</span>
+                <p className={`mt-1 text-sm font-semibold capitalize ${DECISION_BADGE_STYLES[review.decision] ? "" : ""}`}>
+                  {review.decision.replace(/_/g, " ")}
+                </p>
+              </div>
+              <div>
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Confidence</span>
+                <p className="mt-1 text-sm font-medium capitalize text-foreground">{review.confidence ?? "N/A"}</p>
+              </div>
+              <div>
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Reviewed by</span>
+                <p className="mt-1 text-sm font-medium text-foreground">{review.reviewer_name ?? "Unknown"}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {new Date(review.reviewed_at).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-muted/50 px-3 py-2">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Reasoning</span>
+              <p className="mt-1 text-sm leading-relaxed text-foreground">{review.description}</p>
+            </div>
+
+            <Button variant="outline" size="sm" onClick={startEdit} className="w-fit">
+              Update Review
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div>
+              <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Decision</span>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {DECISION_OPTIONS.map((opt) => {
+                  const DIcon = opt.icon
+                  const selected = decision === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => setDecision(opt.value)}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-all ${
+                        selected ? `${opt.bg} ring-2 ring-current/20` : "border-border bg-background hover:bg-muted/50"
+                      }`}
+                    >
+                      <DIcon className={`h-4 w-4 ${selected ? opt.color : "text-muted-foreground"}`} />
+                      <span className={`text-sm font-medium ${selected ? opt.color : "text-foreground"}`}>
+                        {opt.label}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div>
+              <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Confidence</span>
+              <div className="flex gap-2">
+                {CONFIDENCE_OPTIONS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setConfidence(c === confidence ? "" : c)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium capitalize transition-all ${
+                      confidence === c
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-background text-muted-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Description <span className="normal-case text-muted-foreground/60">(min 10 chars)</span>
+              </span>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Explain your reasoning for this decision..."
+                rows={3}
+                className="w-full rounded-lg border border-border bg-background/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              {description.length > 0 && description.trim().length < 10 && (
+                <p className="mt-1 text-[10px] text-red-500">{10 - description.trim().length} more characters needed</p>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={handleSubmit} disabled={!canSubmit || submitting} className="gap-2">
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4" />
+                    Submit Review
+                  </>
+                )}
+              </Button>
+              {review && (
+                <Button variant="outline" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main page                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -575,6 +1609,7 @@ export default function AnalysisPage() {
   const [selectedId, setSelectedId] = useState<string>(presetId ?? "")
   const [status, setStatus] = useState("")
   const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [reviewData, setReviewData] = useState<ReviewData | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [autoRunTriggered, setAutoRunTriggered] = useState(false)
 
@@ -609,20 +1644,14 @@ export default function AnalysisPage() {
 
     try {
       setIsRunning(true)
-      setStatus("Running analysis...")
+      setStatus("Submitting analysis...")
       setResult(null)
 
+      // 1. Trigger async analysis
       const response = await fetch(`${API_BASE}/invoices/${selectedId}/analyze`, {
         method: "POST",
         credentials: "include",
       })
-
-      let data: AnalysisResult | null = null
-      try {
-        data = (await response.json()) as AnalysisResult
-      } catch {
-        data = null
-      }
 
       if (response.status === 401) {
         setStatus("Session expired. Please log in again.")
@@ -631,15 +1660,82 @@ export default function AnalysisPage() {
       }
 
       if (!response.ok) {
-        setStatus(data?.ai?.message ?? "Analysis failed.")
+        let errMsg = "Analysis failed."
+        try {
+          const errData = await response.json()
+          errMsg = errData?.detail ?? errData?.message ?? errMsg
+        } catch { /* ignore */ }
+        setStatus(errMsg)
         setIsRunning(false)
         return
       }
 
-      setResult(data)
-      console.log("VeriPay Analysis Response:", data)
-      setStatus("Analysis complete.")
-      setIsRunning(false)
+      // 2. Poll GET /analysis-status every 3s, timeout after 3 minutes
+      setStatus("Analyzing... this may take a moment.")
+      const POLL_INTERVAL = 3_000
+      const TIMEOUT = 180_000
+      const startTime = Date.now()
+
+      const poll = async (): Promise<void> => {
+        if (Date.now() - startTime > TIMEOUT) {
+          setStatus("Analysis timed out after 3 minutes. Please try again later.")
+          setIsRunning(false)
+          return
+        }
+
+        try {
+          const statusRes = await fetch(
+            `${API_BASE}/invoices/${selectedId}/analysis-status`,
+            { credentials: "include" }
+          )
+
+          if (statusRes.status === 401) {
+            setStatus("Session expired. Please log in again.")
+            setIsRunning(false)
+            return
+          }
+
+          const statusData = await statusRes.json()
+
+          if (statusData.status === "analyzed") {
+            setResult(statusData.result as AnalysisResult)
+            console.log("VeriPay Analysis Response:", statusData.result)
+            setStatus("Analysis complete.")
+            setIsRunning(false)
+
+            // Fetch existing review if any
+            try {
+              const reviewRes = await fetch(
+                `${API_BASE}/invoices/${selectedId}/review`,
+                { credentials: "include" }
+              )
+              if (reviewRes.ok) {
+                setReviewData(await reviewRes.json())
+              } else {
+                setReviewData(null)
+              }
+            } catch {
+              setReviewData(null)
+            }
+            return
+          }
+
+          if (statusData.status === "analysis_failed") {
+            setStatus(statusData.error ?? "Analysis failed.")
+            setIsRunning(false)
+            return
+          }
+
+          // Still analyzing — wait and poll again
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL))
+          return poll()
+        } catch {
+          setStatus("Unable to reach the API.")
+          setIsRunning(false)
+        }
+      }
+
+      await poll()
     } catch {
       setStatus("Unable to reach the API.")
       setIsRunning(false)
@@ -690,7 +1786,7 @@ export default function AnalysisPage() {
         </p>
       </section>
 
-      <Card className="h-full border-0 bg-card/65 shadow-sm backdrop-blur-xl">
+      <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl">
         <CardContent className="flex flex-col gap-5 p-6">
           <div className="grid gap-5 md:grid-cols-2">
             <div className="flex flex-col gap-2">
@@ -780,7 +1876,7 @@ export default function AnalysisPage() {
           className={`absolute inset-0 transition-opacity duration-300 ${isRunning ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
         >
-          <div className="grid gap-6 lg:grid-cols-3 items-stretch">
+          <div className="grid gap-6 lg:grid-cols-3">
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
@@ -801,7 +1897,7 @@ export default function AnalysisPage() {
                 (result.highlights && result.highlights.length > 0) ||
                 (result.spatial_highlights && result.spatial_highlights.length > 0)) && (
                   <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in duration-500">
-                    <CardContent className="flex h-full flex-col gap-4 p-6">
+                    <CardContent className="flex flex-col gap-4 p-6">
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                           <ScanSearch className="h-5 w-5 text-primary" />
@@ -820,15 +1916,19 @@ export default function AnalysisPage() {
                   </Card>
                 )}
 
-              <div className="grid gap-6 lg:grid-cols-3 items-stretch">
+              <div className="grid gap-6 lg:grid-cols-3">
+                <FraudRiskCard ensemble={result.ensemble_fraud_score} />
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-3">
                 <ScoringCard scoring={result.scoring} />
                 <ForensicsCard forensics={result.forensics} />
                 <AiArtifactCard artifact={result.ai_artifact} />
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-3 items-stretch">
+              <div className="grid gap-6 lg:grid-cols-3">
                 <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-75">
-                  <CardContent className="flex h-full flex-col gap-4 p-6">
+                  <CardContent className="flex flex-col gap-4 p-6">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                         <ShieldCheck className="h-5 w-5 text-primary" />
@@ -878,7 +1978,7 @@ export default function AnalysisPage() {
                 />
 
                 <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-200">
-                  <CardContent className="flex h-full flex-col gap-4 p-6">
+                  <CardContent className="flex flex-col gap-4 p-6">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                         <Info className="h-5 w-5 text-primary" />
@@ -957,7 +2057,7 @@ export default function AnalysisPage() {
                 </Card>
 
                 <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-150">
-                  <CardContent className="flex h-full flex-col gap-4 p-6">
+                  <CardContent className="flex flex-col gap-4 p-6">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                         <Brain className="h-5 w-5 text-primary" />
@@ -1022,7 +2122,7 @@ export default function AnalysisPage() {
                 </Card>
 
                 <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-300">
-                  <CardContent className="flex h-full flex-col gap-4 p-6">
+                  <CardContent className="flex flex-col gap-4 p-6">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                         <ClipboardCheck className="h-5 w-5 text-primary" />
@@ -1104,9 +2204,13 @@ export default function AnalysisPage() {
                   </CardContent>
                 </Card>
               </div>
+
+              <div className="grid gap-6 lg:grid-cols-3">
+                <ReviewPanel invoiceId={selectedId} existingReview={reviewData} />
+              </div>
             </div>
           ) : (
-            <div className="grid gap-6 lg:grid-cols-3 items-stretch">
+            <div className="grid gap-6 lg:grid-cols-3">
               <EmptyCard
                 icon={ShieldCheck}
                 title="Cryptographic verification results will appear here."

@@ -1,9 +1,13 @@
 import glob
+import logging
 import os
 from advanced.pipeline_layoutlm import process_invoice_layoutlm
 from advanced.anomaly import AnomalyDetector
 from utils.normalize import normalize_scores
 from utils.visualize import visualize_results
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -15,7 +19,7 @@ def main():
     detector = AnomalyDetector()
     embeddings = []
 
-    print(f"Found {len(invoice_paths)} invoices (LayoutLMv3 pipeline)")
+    logger.info("Found %d invoices (LayoutLMv3 pipeline)", len(invoice_paths))
 
     # ---- Feature extraction ----
     for path in invoice_paths:
@@ -39,11 +43,11 @@ def main():
     normalize_scores(results)
     results.sort(key=lambda x: x["normalized_score"], reverse=True)
 
-    print("\nLayoutLMv3 Anomaly Detection Results")
-    print("-----------------------------------")
+    logger.info("LayoutLMv3 Anomaly Detection Results")
+    logger.info("-----------------------------------")
 
     for r in results:
-        print(f"{r['invoice']} → {round(r['normalized_score'], 3)}")
+        logger.info("%s -> %s", r["invoice"], round(r["normalized_score"], 3))
 
     visualize_results(results)
 

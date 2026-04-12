@@ -1,5 +1,7 @@
-from sqlalchemy.orm import Session
+import logging
 import re
+
+from sqlalchemy.orm import Session
 
 from models.vendor import Vendor
 from models.vendor_bank_binding import VendorBankBinding
@@ -9,6 +11,8 @@ from services.bank_utils import (
     mask_account,
     normalize_account_by_country,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def extract_bank_identifier(text: str) -> str | None:
@@ -106,19 +110,16 @@ def verify_vendor_bank_account(
         }
 
     match = None
-    print("====== VERIFY DEBUG ======")
-    print("Normalized Invoice:", account_norm)
+    logger.debug("Bank verification — invoice account: %s", account_norm)
     for binding in bindings:
-        print("Stored Normalized:", binding.account_normalized)
-        print("DB Hash:", binding.account_hash)
+        logger.debug("  stored: %s (hash: %s)", binding.account_normalized, binding.account_hash)
         if (
             binding.account_hash == account_hash_value
             and binding.country == resolved_country
         ):
             match = binding
             break
-    print("Invoice Hash:", account_hash_value)
-    print("==========================")
+    logger.debug("  invoice hash: %s", account_hash_value)
 
     if match:
         if match.verification_reference == "plaid":
@@ -129,9 +130,11 @@ def verify_vendor_bank_account(
         if match.account_masked:
             masked_account = match.account_masked
     elif bindings:
-        print("⚠️ NO MATCH:")
-        print("Invoice:", account_norm)
-        print("Expected:", [binding.account_normalized for binding in bindings])
+        logger.warning(
+            "Bank mismatch — invoice: %s, expected: %s",
+            account_norm,
+            [b.account_normalized for b in bindings],
+        )
         verification_status = "bank_mismatch"
     else:
         verification_status = "no_bank_registered"

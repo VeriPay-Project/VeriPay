@@ -53,6 +53,7 @@ logger = logging.getLogger("veripay.image_service")
 
 # 🔒 LOCKED — must match layoutlm_features.py convert_from_path call.
 LOCKED_DPI = 200
+MAX_ANALYSIS_PAGES = int(os.environ.get("MAX_ANALYSIS_PAGES", "5"))
 
 OUTPUT_DIR     = "uploads/rendered"
 MAX_FILE_BYTES = 50 * 1024 * 1024  # 50 MB
@@ -124,34 +125,40 @@ def _pil_to_bgr(pil_image: "PilImage.Image") -> Optional[np.ndarray]:
 
 # ─── PDF rendering ────────────────────────────────────────────────────────────
 
-def _render_pdf_pdf2image(file_path: str) -> Tuple[Optional[np.ndarray], Optional[str]]:
+def _render_pdf_pdf2image(
+    file_path: str, max_pages: int = 1,
+) -> Tuple[Optional[list[np.ndarray]], Optional[str]]:
     """
-    Render first page using pdf2image (same call as LayoutLM).
-    Returns (image_bgr, error_string).
+    Render up to *max_pages* pages using pdf2image (matches LayoutLM DPI).
+    Returns (list_of_bgr_images, error_string).
     """
     try:
         images = convert_from_path(
             file_path,
             first_page=1,
-            last_page=1,
+            last_page=max_pages,
             dpi=LOCKED_DPI,
         )
         if not images:
             return None, "pdf2image produced no images"
 
-        bgr = _pil_to_bgr(images[0])
-        if bgr is None:
-            return None, "PIL→BGR conversion failed"
-        return bgr, None
+        bgr_pages = []
+        for pil_img in images:
+            bgr = _pil_to_bgr(pil_img)
+            if bgr is None:
+                return None, "PIL→BGR conversion failed"
+            bgr_pages.append(bgr)
+        return bgr_pages, None
 
     except Exception as exc:
         return None, f"pdf2image failed: {exc}"
 
 
-def _render_pdf_pymupdf(file_path: str) -> Tuple[Optional[np.ndarray], Optional[str]]:
+def _render_pdf_pymupdf(
+    file_path: str, max_pages: int = 1,
+) -> Tuple[Optional[list[np.ndarray]], Optional[str]]:
     """
-    Fallback PDF renderer using PyMuPDF.
-    Used when pdf2image is not installed.
+    Fallback PDF renderer using PyMuPDF.  Returns list of BGR arrays.
     """
     if not HAS_PYMUPDF:
         return None, "Neither pdf2image nor PyMuPDF is available"
@@ -160,21 +167,27 @@ def _render_pdf_pymupdf(file_path: str) -> Tuple[Optional[np.ndarray], Optional[
         with fitz.open(file_path) as doc:
             if len(doc) == 0:
                 return None, "PDF has no pages"
-            pix = doc[0].get_pixmap(dpi=LOCKED_DPI, alpha=False)
-            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
-                pix.height, pix.width, pix.n
-            )
 
-        if not HAS_OPENCV:
-            return None, "OpenCV not available for color conversion"
+            bgr_pages = []
+            for page_idx in range(min(len(doc), max_pages)):
+                pix = doc[page_idx].get_pixmap(dpi=LOCKED_DPI, alpha=False)
+                img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                    pix.height, pix.width, pix.n
+                )
 
-        if pix.n == 4:
-            return cv2.cvtColor(img, cv2.COLOR_RGBA2BGR), None
-        if pix.n == 3:
-            return cv2.cvtColor(img, cv2.COLOR_RGB2BGR), None
-        if pix.n == 1:
-            return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR), None
-        return img, None
+                if not HAS_OPENCV:
+                    return None, "OpenCV not available for color conversion"
+
+                if pix.n == 4:
+                    bgr_pages.append(cv2.cvtColor(img, cv2.COLOR_RGBA2BGR))
+                elif pix.n == 3:
+                    bgr_pages.append(cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+                elif pix.n == 1:
+                    bgr_pages.append(cv2.cvtColor(img, cv2.COLOR_GRAY2BGR))
+                else:
+                    bgr_pages.append(img)
+
+            return bgr_pages, None
 
     except Exception as exc:
         return None, f"PyMuPDF render failed: {exc}"
@@ -214,56 +227,44 @@ def render_invoice_preview(
 
     # ── PDF ──────────────────────────────────────────────────────────────────
     if file_type == "pdf":
-        # Check cache first
-        if key in _image_cache and os.path.exists(_image_cache[key]):
-            cached_path = _image_cache[key]
-            image_bgr = cv2.imread(cached_path) if HAS_OPENCV else None
-            if image_bgr is not None:
-                h, w = image_bgr.shape[:2]
-                return {
-                    "image_path":  _to_url_path(cached_path),
-                    "width":       w,
-                    "height":      h,
-                    "image_bgr":   image_bgr,
-                    "page":        1,
-                    "total_pages": _count_pdf_pages(file_path),
-                    "dpi":         LOCKED_DPI,
-                    "source_type": "pdf",
-                    "loader":      "cache",
-                }
+        total_pages = _count_pdf_pages(file_path)
+        pages_to_render = min(total_pages, MAX_ANALYSIS_PAGES)
 
         # Try pdf2image first (matches LayoutLM exactly)
-        image_bgr = None
+        bgr_pages = None
         loader = None
 
         if HAS_PDF2IMAGE:
-            image_bgr, err = _render_pdf_pdf2image(file_path)
+            bgr_pages, err = _render_pdf_pdf2image(file_path, max_pages=pages_to_render)
             loader = "pdf2image"
             if err:
                 logger.warning("pdf2image failed, trying PyMuPDF: %s", err)
-                image_bgr = None
+                bgr_pages = None
 
-        if image_bgr is None:
-            image_bgr, err = _render_pdf_pymupdf(file_path)
+        if bgr_pages is None:
+            bgr_pages, err = _render_pdf_pymupdf(file_path, max_pages=pages_to_render)
             loader = "pymupdf"
             if err:
                 logger.error("All PDF renderers failed: %s", err)
                 return None
 
-        if not _bgr_to_png(image_bgr, output_path):
+        # Save first page as the preview image
+        if not _bgr_to_png(bgr_pages[0], output_path):
             logger.error("Failed to save rendered PDF preview: %s", output_path)
             return None
 
         _image_cache[key] = output_path
 
-        h, w = image_bgr.shape[:2]
+        h, w = bgr_pages[0].shape[:2]
         return {
             "image_path":  _to_url_path(output_path),
             "width":       w,
             "height":      h,
-            "image_bgr":   image_bgr,
+            "image_bgr":   bgr_pages[0],
+            "all_pages_bgr": bgr_pages,
+            "pages_rendered": len(bgr_pages),
             "page":        1,
-            "total_pages": _count_pdf_pages(file_path),
+            "total_pages": total_pages,
             "dpi":         LOCKED_DPI,
             "source_type": "pdf",
             "loader":      loader,
@@ -341,8 +342,9 @@ def render_invoice_preview(
 # ─── Utilities ────────────────────────────────────────────────────────────────
 
 def _to_url_path(path: str) -> str:
-    """Convert filesystem path to a frontend-accessible relative URL."""
-    return path.replace("\\", "/").replace("uploads/", "")
+    """Convert filesystem path to an authenticated API URL path."""
+    filename = os.path.basename(path)
+    return f"/api/rendered/{filename}"
 
 
 def _count_pdf_pages(file_path: str) -> int:
