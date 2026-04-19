@@ -1,0 +1,5 @@
+{
+  "id": "demo_layoutlm_supervised_v5_clean_rules_20260419_200312",
+  "model_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_1/demo_layoutlm_supervised_v5_clean_rules_20260419_200312.joblib",
+  "metadata_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_1/demo_layoutlm_supervised_v5_clean_rules_20260419_200312.metadata.json"
+}

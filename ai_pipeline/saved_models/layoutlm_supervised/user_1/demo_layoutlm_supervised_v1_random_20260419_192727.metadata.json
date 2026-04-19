@@ -1,0 +1,37 @@
+{
+  "id": "demo_layoutlm_supervised_v1_random_20260419_192727",
+  "name": "Demo LayoutLMv3 v1_random",
+  "model_type": "layoutlmv3_supervised_sklearn",
+  "algorithm": "StandardScaler + LogisticRegression",
+  "layout_model": "microsoft/layoutlmv3-base",
+  "label_mapping": {
+    "rejected": 0,
+    "approved": 1
+  },
+  "positive_label": "approved",
+  "negative_label": "rejected",
+  "label_source": "synthetic_random",
+  "pseudo_rule_version": "v1_random",
+  "production_ready": false,
+  "trained_sample_count": 4,
+  "approved_count": 2,
+  "rejected_count": 2,
+  "iterations": 100,
+  "epochs": 1,
+  "max_iter": 100,
+  "created_at": "2026-04-19T19:27:27.241429Z",
+  "metrics": {
+    "accuracy": 0.25,
+    "precision_approved": 0.3333,
+    "recall_approved": 0.5,
+    "f1_approved": 0.4,
+    "evaluation_mode": "fixed_supervise_training_test_split",
+    "train_count": 4,
+    "test_count": 4
+  },
+  "is_baseline": false,
+  "model_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_1/demo_layoutlm_supervised_v1_random_20260419_192727.joblib",
+  "metadata_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_1/demo_layoutlm_supervised_v1_random_20260419_192727.metadata.json",
+  "manifest_path": "/app/ai_pipeline/datasets/layoutlm_supervised/user_1/demo_layoutlm_supervised_v1_random_20260419_192727.manifest.jsonl",
+  "sha256": "73cccde104778e2dc90764618cc951239d3091b429ab5912f040ee12bea7ccbe"
+}

@@ -1,0 +1,37 @@
+{
+  "id": "demo_layoutlm_supervised_v4_strong_rules_20260419_200227",
+  "name": "Demo LayoutLMv3 v4_strong_rules",
+  "model_type": "layoutlmv3_supervised_sklearn",
+  "algorithm": "StandardScaler + LogisticRegression",
+  "layout_model": "microsoft/layoutlmv3-base",
+  "label_mapping": {
+    "rejected": 0,
+    "approved": 1
+  },
+  "positive_label": "approved",
+  "negative_label": "rejected",
+  "label_source": "pseudo_rule_clean,pseudo_rule_noisy",
+  "pseudo_rule_version": "v4_strong_rules",
+  "production_ready": false,
+  "trained_sample_count": 500,
+  "approved_count": 306,
+  "rejected_count": 194,
+  "iterations": 250,
+  "epochs": 2,
+  "max_iter": 500,
+  "created_at": "2026-04-19T20:02:27.867230Z",
+  "metrics": {
+    "accuracy": 0.5764,
+    "precision_approved": 0.6632,
+    "recall_approved": 0.6029,
+    "f1_approved": 0.6316,
+    "evaluation_mode": "fixed_supervise_training_test_split",
+    "train_count": 500,
+    "test_count": 347
+  },
+  "is_baseline": false,
+  "model_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_1/demo_layoutlm_supervised_v4_strong_rules_20260419_200227.joblib",
+  "metadata_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_1/demo_layoutlm_supervised_v4_strong_rules_20260419_200227.metadata.json",
+  "manifest_path": "/app/ai_pipeline/datasets/layoutlm_supervised/user_1/demo_layoutlm_supervised_v4_strong_rules_20260419_200227.manifest.jsonl",
+  "sha256": "fac4edf76b07c110efdba4b33c426d799e46bb4991a984c69ca15a29e259a103"
+}
