@@ -56,6 +56,7 @@ services:
       - ./backend:/app/backend
       - ./ai_pipeline:/app/ai_pipeline
       - ./test_pdfs:/app/test_pdfs
+      - ./SuperviseTraining:/app/SuperviseTraining
     ports:
       - "8000:8000"
     depends_on:
