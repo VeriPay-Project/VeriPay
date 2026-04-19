@@ -34,7 +34,8 @@ router = APIRouter(
     tags=["Vendors"]
 )
 
-DEV_MODE_OVERRIDE_BANK = os.getenv("DEV_MODE_OVERRIDE_BANK", "false").lower() == "true"
+DEV_MODE_OVERRIDE_BANK = os.getenv(
+    "DEV_MODE_OVERRIDE_BANK", "false").lower() == "true"
 
 
 def _clean_text(value: str | None) -> str | None:
@@ -69,10 +70,9 @@ def _build_validation_payload(
     return {"routing": None, "iban": None}
 
 
-def _get_vendor_or_404(db: Session, vendor_id: int, user: "User") -> Vendor:
+def _get_vendor_or_404(db: Session, vendor_id: int) -> Vendor:
     vendor = db.query(Vendor).filter(
-        Vendor.vendor_id == vendor_id,
-        Vendor.user_id == user.id,
+        Vendor.vendor_id == vendor_id
     ).first()
 
     if not vendor:
@@ -104,7 +104,8 @@ def _build_plaid_account_identifier(
     if iban:
         return "OTHER", None, iban, iban
 
-    raise PlaidServiceError("Plaid account data did not include a supported identifier")
+    raise PlaidServiceError(
+        "Plaid account data did not include a supported identifier")
 
 
 # =========================
@@ -129,10 +130,12 @@ async def register_vendor(
             )
 
         try:
-            cert = x509.load_pem_x509_certificate(cert_bytes, default_backend())
+            cert = x509.load_pem_x509_certificate(
+                cert_bytes, default_backend())
         except ValueError:
             try:
-                cert = x509.load_der_x509_certificate(cert_bytes, default_backend())
+                cert = x509.load_der_x509_certificate(
+                    cert_bytes, default_backend())
             except ValueError:
                 raise HTTPException(
                     status_code=400,
@@ -166,7 +169,8 @@ async def register_vendor(
     log_event(
         db, action="create_vendor", user_id=user.id,
         resource_type="vendor", resource_id=str(vendor.vendor_id),
-        details={"vendor_name": vendor_name, "has_certificate": fingerprint is not None},
+        details={"vendor_name": vendor_name,
+                 "has_certificate": fingerprint is not None},
         request=request,
     )
     db.commit()
@@ -190,11 +194,12 @@ def register_vendor_bank_binding(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    vendor = _get_vendor_or_404(db, vendor_id, user)
+    vendor = _get_vendor_or_404(db, vendor_id)
 
     account_identifier = payload.get("account_identifier")
     requested_country = _normalize_country(payload.get("country"))
-    requested_account_type = _normalize_account_type(payload.get("account_type"))
+    requested_account_type = _normalize_account_type(
+        payload.get("account_type"))
 
     if not account_identifier:
         raise HTTPException(
@@ -202,7 +207,8 @@ def register_vendor_bank_binding(
             detail="account_identifier is required"
         )
 
-    detected_account_type, detected_country = detect_account_type(account_identifier)
+    detected_account_type, detected_country = detect_account_type(
+        account_identifier)
     country = requested_country or detected_country
     account_type = requested_account_type or detected_account_type
 
@@ -224,7 +230,8 @@ def register_vendor_bank_binding(
             detail="Account identifier does not match the provided account type"
         )
 
-    normalized_account = normalize_account_by_country(country, account_identifier)
+    normalized_account = normalize_account_by_country(
+        country, account_identifier)
     if not normalized_account:
         raise HTTPException(
             status_code=400,
@@ -337,7 +344,7 @@ def create_vendor_plaid_link_token(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_vendor_or_404(db, vendor_id, user)
+    _get_vendor_or_404(db, vendor_id)
 
     try:
         link_token = create_link_token(f"vendor-{vendor_id}-user-{user.id}")
@@ -358,12 +365,13 @@ def exchange_vendor_plaid_token(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_vendor_or_404(db, vendor_id, user)
+    _get_vendor_or_404(db, vendor_id)
 
     try:
         exchange_result = exchange_public_token(payload.public_token)
         account_data = get_account_data(exchange_result["access_token"])
-        country, routing_number, account_number, raw_identifier = _build_plaid_account_identifier(account_data)
+        country, routing_number, account_number, raw_identifier = _build_plaid_account_identifier(
+            account_data)
     except PlaidServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -373,7 +381,8 @@ def exchange_vendor_plaid_token(
 
     normalized_account = normalize_account_by_country(country, raw_identifier)
     if not normalized_account:
-        raise HTTPException(status_code=400, detail="Unsupported Plaid account format")
+        raise HTTPException(
+            status_code=400, detail="Unsupported Plaid account format")
 
     account_hash = hash_account(normalized_account)
     masked_account = mask_account(normalized_account)
@@ -451,13 +460,15 @@ def exchange_vendor_plaid_token(
 # =========================
 # GET VENDOR
 # =========================
+
+
 @router.get("/{vendor_id}", status_code=status.HTTP_200_OK)
 def get_vendor(
     vendor_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    vendor = _get_vendor_or_404(db, vendor_id, user)
+    vendor = _get_vendor_or_404(db, vendor_id)
 
     return {
         "vendor_id": vendor.vendor_id,
@@ -476,7 +487,7 @@ def get_vendor_bank_bindings(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    _get_vendor_or_404(db, vendor_id, user)
+    _get_vendor_or_404(db, vendor_id)
 
     bindings = db.query(VendorBankBinding).filter(
         VendorBankBinding.vendor_id == vendor_id
@@ -508,7 +519,7 @@ def list_vendors(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    vendors = db.query(Vendor).filter(Vendor.user_id == user.id).all()
+    vendors = db.query(Vendor).all()
 
     return [
         {

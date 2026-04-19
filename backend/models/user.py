@@ -13,4 +13,3 @@ class User(Base):
     security_question = Column(String, nullable=True)
     security_answer_hash = Column(String, nullable=True)
     invoices = relationship("Invoice", back_populates="user", cascade="all, delete")
-    vendors = relationship("Vendor", back_populates="owner", cascade="all, delete")

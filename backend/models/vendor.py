@@ -10,6 +10,4 @@ class Vendor(Base):
     vendor_name = Column(String, nullable=False)
     public_key_fingerprint = Column(String, unique=True, nullable=True)
     status = Column(String, default="active", nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
-    owner = relationship("User", back_populates="vendors")
