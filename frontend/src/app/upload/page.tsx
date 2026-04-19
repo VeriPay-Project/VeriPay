@@ -51,17 +51,22 @@ export default function UploadPage() {
 
   useEffect(() => {
     const fetchVendors = async () => {
-      const res = await fetch(`${API_BASE}/vendors`, {
-        credentials: "include",
-      })
+      try {
+        const res = await fetch(`${API_BASE}/vendors/`, {
+          credentials: "include",
+        })
 
-      if (!res.ok) return
+        if (!res.ok) return
 
-      const data = await res.json()
-      setVendors(data)
+        const data = await res.json()
+        setVendors(data)
+      } catch (err) {
+        console.warn("Unable to load vendors for upload page.", err)
+        setVendors([])
+      }
     }
 
-    fetchVendors()
+    void fetchVendors()
   }, [])
 
   const handleFile = useCallback((file: File) => {
@@ -98,7 +103,7 @@ export default function UploadPage() {
 
     const xhr = new XMLHttpRequest()
 
-    xhr.open("POST", `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"}/invoices/upload`, true)
+    xhr.open("POST", `${API_BASE}/invoices/upload`, true)
     xhr.withCredentials = true
 
     // 🔥 Track progress

@@ -33,6 +33,7 @@ from routers import invoice as invoice_router
 from routers import auth as auth_router
 from routers import dashboard, stats, files as files_router, audit as audit_router
 from routers import review as review_router
+from routers import layoutlm_training as layoutlm_training_router
 from routers.auth import forgot_password
 
 # ──────────────────────────────────────────────
@@ -189,7 +190,10 @@ app.add_middleware(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -271,6 +275,7 @@ app.include_router(stats.router)
 app.include_router(files_router.router)   # authenticated file serving (Fix 6)
 app.include_router(audit_router.router)   # audit trail read endpoint (Fix 7)
 app.include_router(review_router.router)  # human review/decision system
+app.include_router(layoutlm_training_router.router)  # supervised LayoutLMv3 training
 
 
 # ──────────────────────────────────────────────

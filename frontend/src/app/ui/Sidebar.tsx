@@ -9,6 +9,7 @@ import {
     LayoutDashboard,
     Upload,
     BarChart3,
+    Brain,
     ShieldCheck,
     User,
     Building2,
@@ -18,13 +19,9 @@ const appNavItems = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/upload", label: "Upload invoices", icon: Upload },
     { href: "/analysis", label: "Analysis", icon: BarChart3 },
+    { href: "/layoutlm-training", label: "LayoutLMv3 Training", icon: Brain },
     { href: "/vendors", label: "Vendors", icon: Building2 },
     { href: "/about", label: "About", icon: ShieldCheck },
-]
-
-const authNavItems = [
-    { href: "/login", label: "Login" },
-    { href: "/register", label: "Register" },
 ]
 
 export default function Sidebar() {

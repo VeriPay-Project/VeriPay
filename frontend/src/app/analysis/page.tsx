@@ -34,8 +34,6 @@ import {
   Scale,
   CheckCircle2,
   XCircle,
-  Flag,
-  ArrowUpCircle,
   Send,
 } from "lucide-react"
 
@@ -89,9 +87,20 @@ type AnalysisResult = {
   ai: {
     status: string
     message?: string
+    model_type?: string
+    model_id?: string
+    model_version?: string
+    algorithm?: string
     anomaly_score?: number
     risk_level?: string
     review_required?: boolean
+    prediction_label?: string
+    approval_probability?: number
+    rejection_probability?: number
+    classifier_confidence?: number
+    training_sample_count?: number
+    approved_count?: number
+    rejected_count?: number
     embedding_distance?: number
     distance_z_score?: number
     explanations?: string[]
@@ -224,12 +233,21 @@ type AnalysisResult = {
 
   ai_artifact?: {
     status: string
+    card_name?: string
+    method?: string
     ai_text_score: number
     risk_level?: string
     reasoning?: string
+    ollama_probability?: number | null
+    model_confidence?: number | null
+    heuristic_score?: number
+    artifact_type?: string
     perplexity_risk?: number
     burstiness_risk?: number
     repetition_score?: number
+    diversity_risk?: number
+    punctuation_score?: number
+    signal_boost?: number
     signals?: {
       type: string
       message: string
@@ -281,6 +299,29 @@ type ReviewData = {
   updated_at: string
 }
 
+type LayoutLMModel = {
+  id: string
+  source_model_id?: string
+  name: string
+  model_type: string
+  is_baseline?: boolean
+  is_latest?: boolean
+  is_best?: boolean
+  trained_sample_count?: number | null
+  approved_count?: number
+  rejected_count?: number
+  created_at?: string | null
+  metrics?: {
+    accuracy?: number
+    precision_approved?: number
+    recall_approved?: number
+    f1_approved?: number
+    evaluation_mode?: string
+    train_count?: number
+    test_count?: number
+  } | null
+}
+
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
 /* ------------------------------------------------------------------ */
@@ -288,6 +329,44 @@ type ReviewData = {
 function displayValue(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined || value === "") return "N/A"
   return String(value)
+}
+
+function displayProbability(value: number | null | undefined): string {
+  return typeof value === "number" ? value.toFixed(2) : "N/A"
+}
+
+function displayPercent(value: number | null | undefined): string {
+  return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "N/A"
+}
+
+function layoutlmModelKey(model: LayoutLMModel): string {
+  return `${model.id}-${model.source_model_id ?? ""}`
+}
+
+function LayoutlmModelTags({ model }: { model: LayoutLMModel }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {model.is_best && (
+        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-300">
+          Best
+        </span>
+      )}
+      {model.is_latest && (
+        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+          Latest
+        </span>
+      )}
+    </span>
+  )
+}
+
+function LayoutlmModelOption({ model }: { model: LayoutLMModel }) {
+  return (
+    <span className="flex min-h-6 items-center gap-2">
+      <span>{model.name}</span>
+      <LayoutlmModelTags model={model} />
+    </span>
+  )
 }
 
 function resolvePreviewUrl(path?: string | null): string | null {
@@ -1121,10 +1200,10 @@ function ForensicsCard({ forensics }: { forensics?: AnalysisResult["forensics"] 
 }
 
 /* ------------------------------------------------------------------ */
-/*  AI artifact card                                                  */
+/*  AI text detection card                                            */
 /* ------------------------------------------------------------------ */
 
-function AiArtifactCard({
+function AiTextDetectionCard({
   artifact,
 }: {
   artifact?: AnalysisResult["ai_artifact"]
@@ -1139,11 +1218,13 @@ function AiArtifactCard({
             <Sparkles className="h-5 w-5 text-primary" />
           </div>
           <h3 className="text-sm font-semibold text-foreground">
-            AI artifact detection
+            AI text detection
           </h3>
         </div>
 
-        {artifact.status === "skipped" || artifact.status === "insufficient_text" ? (
+        {artifact.status === "skipped" ||
+        artifact.status === "insufficient_text" ||
+        artifact.status === "error" ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <AlertTriangle className="h-3.5 w-3.5" />
             {artifact.reason ?? artifact.reasoning ?? "Insufficient text for analysis"}
@@ -1153,7 +1234,7 @@ function AiArtifactCard({
             <ScoreBar
               label="AI text score"
               score={artifact.ai_text_score}
-              invert={false}
+              invert={true}
             />
 
             <div className="flex items-center justify-between">
@@ -1163,6 +1244,39 @@ function AiArtifactCard({
               <RiskPill level={artifact.risk_level} />
             </div>
 
+            <div className="divide-y divide-border/40">
+              <MetricRow
+                label="Method"
+                value={displayValue(artifact.method?.replace(/_/g, " "))}
+              />
+              <MetricRow
+                label="Artifact type"
+                value={displayValue(artifact.artifact_type?.replace(/_/g, " "))}
+              />
+            </div>
+
+            {(artifact.ollama_probability !== undefined ||
+              artifact.heuristic_score !== undefined ||
+              artifact.model_confidence !== undefined) && (
+                <div className="divide-y divide-border/40">
+                  <ScoreBar
+                    label="Ollama judgment"
+                    score={artifact.ollama_probability ?? undefined}
+                    invert={true}
+                  />
+                  <ScoreBar
+                    label="Heuristic fallback"
+                    score={artifact.heuristic_score}
+                    invert={true}
+                  />
+                  <ScoreBar
+                    label="Model confidence"
+                    score={artifact.model_confidence ?? undefined}
+                    invert={false}
+                  />
+                </div>
+              )}
+
             {(artifact.perplexity_risk !== undefined ||
               artifact.burstiness_risk !== undefined ||
               artifact.repetition_score !== undefined) && (
@@ -1170,17 +1284,32 @@ function AiArtifactCard({
                   <ScoreBar
                     label="Perplexity risk"
                     score={artifact.perplexity_risk}
-                    invert={false}
+                    invert={true}
                   />
                   <ScoreBar
                     label="Burstiness risk"
                     score={artifact.burstiness_risk}
-                    invert={false}
+                    invert={true}
                   />
                   <ScoreBar
                     label="Repetition"
                     score={artifact.repetition_score}
-                    invert={false}
+                    invert={true}
+                  />
+                  <ScoreBar
+                    label="Diversity risk"
+                    score={artifact.diversity_risk}
+                    invert={true}
+                  />
+                  <ScoreBar
+                    label="Punctuation"
+                    score={artifact.punctuation_score}
+                    invert={true}
+                  />
+                  <ScoreBar
+                    label="Signal boost"
+                    score={artifact.signal_boost}
+                    invert={true}
                   />
                 </div>
               )}
@@ -1375,8 +1504,6 @@ function FraudRiskCard({ ensemble }: { ensemble?: AnalysisResult["ensemble_fraud
 const DECISION_OPTIONS = [
   { value: "approved", label: "Approve", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30", icon: CheckCircle2 },
   { value: "rejected", label: "Reject", color: "text-red-600 dark:text-red-400", bg: "bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30", icon: XCircle },
-  { value: "flagged_for_investigation", label: "Flag for Investigation", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30", icon: Flag },
-  { value: "escalated", label: "Escalate", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-50 dark:bg-purple-500/10 border-purple-200 dark:border-purple-500/30", icon: ArrowUpCircle },
 ] as const
 
 const CONFIDENCE_OPTIONS = ["certain", "likely", "uncertain"] as const
@@ -1384,14 +1511,15 @@ const CONFIDENCE_OPTIONS = ["certain", "likely", "uncertain"] as const
 const DECISION_BADGE_STYLES: Record<string, string> = {
   approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
   rejected: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300",
-  flagged_for_investigation: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
-  escalated: "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300",
 }
+
+const isSupportedDecision = (value: string | null | undefined) =>
+  value ? DECISION_OPTIONS.some((opt) => opt.value === value) : false
 
 function ReviewPanel({ invoiceId, existingReview }: { invoiceId: string; existingReview: ReviewData | null }) {
   const [review, setReview] = useState<ReviewData | null>(existingReview)
   const [editing, setEditing] = useState(!existingReview)
-  const [decision, setDecision] = useState(existingReview?.decision ?? "")
+  const [decision, setDecision] = useState(isSupportedDecision(existingReview?.decision) ? existingReview?.decision ?? "" : "")
   const [confidence, setConfidence] = useState(existingReview?.confidence ?? "")
   const [description, setDescription] = useState(existingReview?.description ?? "")
   const [submitting, setSubmitting] = useState(false)
@@ -1438,7 +1566,7 @@ function ReviewPanel({ invoiceId, existingReview }: { invoiceId: string; existin
 
   const startEdit = () => {
     if (review) {
-      setDecision(review.decision)
+      setDecision(isSupportedDecision(review.decision) ? review.decision : "")
       setConfidence(review.confidence ?? "")
       setDescription(review.description)
     }
@@ -1512,7 +1640,7 @@ function ReviewPanel({ invoiceId, existingReview }: { invoiceId: string; existin
           <div className="flex flex-col gap-4">
             <div>
               <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Decision</span>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {DECISION_OPTIONS.map((opt) => {
                   const DIcon = opt.icon
                   const selected = decision === opt.value
@@ -1610,10 +1738,35 @@ export default function AnalysisPage() {
   const [status, setStatus] = useState("")
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [reviewData, setReviewData] = useState<ReviewData | null>(null)
+  const [layoutlmModels, setLayoutlmModels] = useState<LayoutLMModel[]>([])
+  const [selectedLayoutlmModel, setSelectedLayoutlmModel] = useState("baseline_unsupervised")
   const [isRunning, setIsRunning] = useState(false)
   const [autoRunTriggered, setAutoRunTriggered] = useState(false)
 
   const canAnalyze = useMemo(() => selectedId.trim().length > 0, [selectedId])
+  const availableLayoutlmModels = useMemo(
+    () => {
+      const trainedModels = layoutlmModels.filter((model) => !model.is_baseline)
+      if (trainedModels.length) return trainedModels
+      return layoutlmModels.length
+        ? layoutlmModels
+        : [
+          {
+            id: "baseline_unsupervised",
+            name: "Baseline anomaly model",
+            model_type: "layoutlmv3_isolation_forest",
+            is_baseline: true,
+          },
+        ]
+    },
+    [layoutlmModels]
+  )
+  const selectedLayoutlmModelDetails = useMemo(
+    () =>
+      availableLayoutlmModels.find((model) => model.id === selectedLayoutlmModel) ??
+      availableLayoutlmModels[0],
+    [availableLayoutlmModels, selectedLayoutlmModel]
+  )
 
   useEffect(() => {
     const loadInvoices = async () => {
@@ -1633,6 +1786,34 @@ export default function AnalysisPage() {
   }, [])
 
   useEffect(() => {
+    const loadLayoutlmModels = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/layoutlm/models`, {
+          credentials: "include",
+        })
+        if (!response.ok) return
+        const data = (await response.json()) as {
+          default_model_id?: string
+          models?: LayoutLMModel[]
+        }
+        const nextModels = data.models ?? []
+        const trainedModels = nextModels.filter((model) => !model.is_baseline)
+        const visibleNextModels = trainedModels.length ? trainedModels : nextModels
+        const defaultModelId =
+          data.default_model_id && visibleNextModels.some((model) => model.id === data.default_model_id)
+            ? data.default_model_id
+            : visibleNextModels[0]?.id
+        setLayoutlmModels(nextModels)
+        setSelectedLayoutlmModel(defaultModelId ?? "baseline_unsupervised")
+      } catch {
+        setLayoutlmModels([])
+      }
+    }
+
+    loadLayoutlmModels()
+  }, [])
+
+  useEffect(() => {
     if (presetId) setSelectedId(presetId)
   }, [presetId])
 
@@ -1648,10 +1829,16 @@ export default function AnalysisPage() {
       setResult(null)
 
       // 1. Trigger async analysis
-      const response = await fetch(`${API_BASE}/invoices/${selectedId}/analyze`, {
-        method: "POST",
-        credentials: "include",
+      const query = new URLSearchParams({
+        layoutlm_model_id: selectedLayoutlmModel,
       })
+      const response = await fetch(
+        `${API_BASE}/invoices/${selectedId}/analyze?${query.toString()}`,
+        {
+          method: "POST",
+          credentials: "include",
+        }
+      )
 
       if (response.status === 401) {
         setStatus("Session expired. Please log in again.")
@@ -1740,7 +1927,7 @@ export default function AnalysisPage() {
       setStatus("Unable to reach the API.")
       setIsRunning(false)
     }
-  }, [canAnalyze, selectedId])
+  }, [canAnalyze, selectedId, selectedLayoutlmModel])
 
   useEffect(() => {
     if (!autoRun || autoRunTriggered || !selectedId) return
@@ -1829,6 +2016,42 @@ export default function AnalysisPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
+            <div className="min-w-[260px]">
+              <Label htmlFor="layoutlmModel" className="mb-2 block text-xs">
+                LayoutLMv3 model
+              </Label>
+              <Select
+                value={selectedLayoutlmModel}
+                onValueChange={setSelectedLayoutlmModel}
+              >
+                <SelectTrigger id="layoutlmModel" className="h-10 bg-background/50">
+                  <SelectValue placeholder="Select LayoutLMv3 model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableLayoutlmModels.map((model) => (
+                    <SelectItem
+                      key={layoutlmModelKey(model)}
+                      value={model.id}
+                      textValue={model.name}
+                    >
+                      <LayoutlmModelOption model={model} />
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedLayoutlmModelDetails && (
+                <p className="mt-2 max-w-[420px] text-xs leading-relaxed text-muted-foreground">
+                  {selectedLayoutlmModelDetails.name}
+                  {selectedLayoutlmModelDetails.metrics?.accuracy !== undefined
+                    ? ` · ${displayPercent(selectedLayoutlmModelDetails.metrics.accuracy)} accuracy`
+                    : ""}
+                  {selectedLayoutlmModelDetails.trained_sample_count
+                    ? ` · ${selectedLayoutlmModelDetails.trained_sample_count} training labels`
+                    : ""}
+                </p>
+              )}
+            </div>
+
             <Button
               onClick={handleAnalyze}
               disabled={!canAnalyze || isRunning}
@@ -1848,8 +2071,7 @@ export default function AnalysisPage() {
             </Button>
 
             <span className="text-xs text-muted-foreground">
-              PDF invoices include full AI scoring. Image invoices still render
-              preview, forensics, and highlights.
+              LayoutLMv3 scoring supports uploaded PDFs and image invoices.
             </span>
           </div>
 
@@ -1923,7 +2145,7 @@ export default function AnalysisPage() {
               <div className="grid gap-6 lg:grid-cols-3">
                 <ScoringCard scoring={result.scoring} />
                 <ForensicsCard forensics={result.forensics} />
-                <AiArtifactCard artifact={result.ai_artifact} />
+                <AiTextDetectionCard artifact={result.ai_artifact} />
               </div>
 
               <div className="grid gap-6 lg:grid-cols-3">
@@ -2084,6 +2306,45 @@ export default function AnalysisPage() {
                             <AnomalyScoreBar score={result.ai.anomaly_score} />
                           )}
 
+                        <MetricRow
+                          label="Model"
+                          value={
+                            result.ai.model_type === "layoutlmv3_supervised_sklearn"
+                              ? "LayoutLMv3 supervised classifier"
+                              : "LayoutLMv3 baseline anomaly model"
+                          }
+                        />
+                        {result.ai.model_version && (
+                          <MetricRow
+                            label="Model version"
+                            value={result.ai.model_version}
+                          />
+                        )}
+                        {result.ai.prediction_label && (
+                          <MetricRow
+                            label="Prediction"
+                            value={result.ai.prediction_label.replace(/_/g, " ")}
+                          />
+                        )}
+                        {typeof result.ai.approval_probability === "number" && (
+                          <MetricRow
+                            label="Approval probability"
+                            value={displayProbability(result.ai.approval_probability)}
+                          />
+                        )}
+                        {typeof result.ai.rejection_probability === "number" && (
+                          <MetricRow
+                            label="Rejection probability"
+                            value={displayProbability(result.ai.rejection_probability)}
+                          />
+                        )}
+                        {typeof result.ai.classifier_confidence === "number" && (
+                          <MetricRow
+                            label="Classifier confidence"
+                            value={displayProbability(result.ai.classifier_confidence)}
+                          />
+                        )}
+
                         <div className="flex items-center justify-between py-2">
                           <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                             Risk level
@@ -2103,6 +2364,12 @@ export default function AnalysisPage() {
                           label="Distance z-score"
                           value={displayValue(result.ai.distance_z_score)}
                         />
+                        {typeof result.ai.training_sample_count === "number" && (
+                          <MetricRow
+                            label="Training labels"
+                            value={displayValue(result.ai.training_sample_count)}
+                          />
+                        )}
                       </div>
                     )}
 

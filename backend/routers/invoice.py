@@ -2,8 +2,9 @@
 # IMPORTS
 # ──────────────────────────────────────────────
 import asyncio
+from datetime import datetime
 from difflib import SequenceMatcher
-from fastapi import APIRouter, BackgroundTasks, UploadFile, File, HTTPException, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, UploadFile, File, HTTPException, Depends, Query, Request
 import io
 import logging
 import os
@@ -103,6 +104,19 @@ def _check_magic_bytes(content_type: str, data: bytes) -> bool:
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INVOICE_DIR = os.path.join(BASE_DIR, "invoices")
 os.makedirs(INVOICE_DIR, exist_ok=True)
+
+
+def _new_invoice_storage_path(user_id: int, extension: str) -> str:
+    now = datetime.utcnow()
+    storage_dir = os.path.join(
+        INVOICE_DIR,
+        f"user_{user_id}",
+        "incoming",
+        now.strftime("%Y"),
+        now.strftime("%m"),
+    )
+    os.makedirs(storage_dir, exist_ok=True)
+    return os.path.join(storage_dir, f"{uuid.uuid4()}{extension}")
 
 
 # ──────────────────────────────────────────────
@@ -647,7 +661,7 @@ async def upload_invoice(
     if db.query(Invoice).filter(Invoice.file_hash == file_hash).first():
         raise HTTPException(status_code=409, detail="Duplicate invoice detected")
 
-    file_path = os.path.join(INVOICE_DIR, f"{uuid.uuid4()}{extension}")
+    file_path = _new_invoice_storage_path(user.id, extension)
     with open(file_path, "wb") as f:
         f.write(contents)
 
@@ -724,7 +738,11 @@ async def upload_invoice(
 # ANALYSIS BACKGROUND WORKER  (Fix 1, 2, 3, 4)
 # ──────────────────────────────────────────────
 
-async def _run_analysis_pipeline(invoice_id: int, user_id: int) -> None:
+async def _run_analysis_pipeline(
+    invoice_id: int,
+    user_id: int,
+    layoutlm_model_id: str = "baseline_unsupervised",
+) -> None:
     """
     Full 16-step analysis pipeline executed as an async coroutine.
 
@@ -797,6 +815,7 @@ async def _run_analysis_pipeline(invoice_id: int, user_id: int) -> None:
 
         # ── LLM FIELD EXTRACTION (Ollama, from extracted text) ────────────────
         semantic_fields = await extract_invoice_fields(extracted_text)
+        ai_text_ollama = semantic_fields.pop("_ai_text_detection", None)
         llm_extraction_status = semantic_fields.get("extraction_status", "success")
         llm_extraction_error = semantic_fields.get("extraction_error")
         if llm_extraction_status == "failed":
@@ -873,14 +892,23 @@ async def _run_analysis_pipeline(invoice_id: int, user_id: int) -> None:
         )
 
         # ── AI INFERENCE (CPU-heavy — run in thread pool) ─────────────────────
-        ai_result = await asyncio.to_thread(run_ai_analysis, file_path)
+        ai_result = await asyncio.to_thread(
+            run_ai_analysis,
+            file_path,
+            layoutlm_model_id,
+            user_id,
+        )
 
         try:
             rules_result = await asyncio.to_thread(run_rules_checks, file_path, file_type)
         except Exception as exc:
             rules_result = {"status": "error", "message": f"Rules analysis failed: {exc}"}
 
-        ai_artifact_result = await asyncio.to_thread(run_ai_artifact_detection, extracted_text)
+        ai_artifact_result = await asyncio.to_thread(
+            run_ai_artifact_detection,
+            extracted_text,
+            ai_text_ollama,
+        )
 
         highlights_bundle = build_highlights(
             forensics_result=forensics_result,
@@ -934,7 +962,7 @@ async def _run_analysis_pipeline(invoice_id: int, user_id: int) -> None:
             invoice_id=invoice_id,
             prediction=prediction,
             confidence=confidence,
-            model_version="layoutlmv3-isolation-forest",
+            model_version=ai_result.get("model_version") or ai_result.get("model_id") or layoutlm_model_id,
             crypto_json=crypto,
             ai_json=ai_result,
             rules_json=rules_result,
@@ -961,6 +989,8 @@ async def _run_analysis_pipeline(invoice_id: int, user_id: int) -> None:
                 "risk_level": ai_result.get("risk_level"),
                 "anomaly_score": ai_result.get("anomaly_score"),
                 "ai_status": ai_result.get("status"),
+                "layoutlm_model_id": ai_result.get("model_id") or layoutlm_model_id,
+                "layoutlm_model_type": ai_result.get("model_type"),
                 "fraud_score": ensemble.get("fraud_score"),
                 "fraud_risk_level": ensemble.get("risk_level"),
                 "llm_extraction_status": llm_extraction_status,
@@ -990,13 +1020,17 @@ async def _run_analysis_pipeline(invoice_id: int, user_id: int) -> None:
         db.close()
 
 
-async def _run_analysis_background(invoice_id: int, user_id: int) -> None:
+async def _run_analysis_background(
+    invoice_id: int,
+    user_id: int,
+    layoutlm_model_id: str = "baseline_unsupervised",
+) -> None:
     """
     Async wrapper for BackgroundTasks.
     The pipeline is async: I/O-bound work (Ollama) uses native async httpx,
     CPU-heavy work (AI inference, forensics) is dispatched via asyncio.to_thread().
     """
-    await _run_analysis_pipeline(invoice_id, user_id)
+    await _run_analysis_pipeline(invoice_id, user_id, layoutlm_model_id)
 
 
 # ──────────────────────────────────────────────
@@ -1008,6 +1042,7 @@ async def analyze_invoice(
     request: Request,
     invoice_id: int,
     background_tasks: BackgroundTasks,
+    layoutlm_model_id: str = Query(default="baseline_unsupervised"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1027,9 +1062,9 @@ async def analyze_invoice(
     invoice.analysis_error = None
     db.commit()
 
-    background_tasks.add_task(_run_analysis_background, invoice_id, user.id)
+    background_tasks.add_task(_run_analysis_background, invoice_id, user.id, layoutlm_model_id)
 
-    return {"status": "analyzing", "invoice_id": invoice_id}
+    return {"status": "analyzing", "invoice_id": invoice_id, "layoutlm_model_id": layoutlm_model_id}
 
 
 # ──────────────────────────────────────────────
