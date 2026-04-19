@@ -268,6 +268,30 @@ def save_supervised_model_bundle(
     return completed_metadata
 
 
+def delete_supervised_model(user_id: int, model_id: str) -> None:
+    model_dir = _user_model_dir(user_id)
+    dataset_dir = _user_dataset_dir(user_id)
+
+    for path in [
+        model_dir / f"{model_id}.joblib",
+        model_dir / f"{model_id}.joblib.sha256",
+        model_dir / f"{model_id}.metadata.json",
+        dataset_dir / f"{model_id}.manifest.jsonl",
+    ]:
+        if path.exists():
+            path.unlink()
+
+    # If latest.json points to this model, remove it
+    latest_path = model_dir / "latest.json"
+    if latest_path.exists():
+        try:
+            latest = json.loads(latest_path.read_text())
+            if latest.get("id") == model_id:
+                latest_path.unlink()
+        except Exception:
+            pass
+
+
 def load_supervised_model_bundle(user_id: int, model_id: str) -> dict[str, Any]:
     if model_id == LATEST_MODEL_ID:
         latest = get_latest_supervised_metadata(user_id)

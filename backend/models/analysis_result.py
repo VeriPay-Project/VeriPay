@@ -8,6 +8,7 @@ class AnalysisResult(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     invoice_id = Column(Integer, ForeignKey("invoices.invoice_id"), index=True, nullable=False)
+    layoutlm_model_id = Column(String, nullable=True, index=True)
     prediction = Column(Integer, nullable=False)
     confidence = Column(Float, nullable=False)
     model_version = Column(String, nullable=False)

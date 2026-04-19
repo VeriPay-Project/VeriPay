@@ -23,7 +23,7 @@ class InvoiceReview(Base):
     )
     decision = Column(String, nullable=False)
     confidence = Column(String, nullable=True)
-    description = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
     reviewed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

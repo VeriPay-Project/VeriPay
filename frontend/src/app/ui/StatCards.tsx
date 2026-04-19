@@ -12,7 +12,6 @@ import {
   ClipboardCheck,
   CheckCircle2,
   XCircle,
-  Flag,
 } from "lucide-react"
 
 type Stats = {
@@ -26,8 +25,6 @@ type Stats = {
   total_pending_review?: number
   total_approved?: number
   total_rejected?: number
-  total_flagged?: number
-  total_escalated?: number
 }
 
 export default function StatCards({ stats }: { stats: Stats }) {
@@ -84,16 +81,9 @@ export default function StatCards({ stats }: { stats: Stats }) {
           {
             label: "Rejected",
             value: stats.total_rejected ?? 0,
-            trend: `${stats.total_flagged ?? 0} flagged`,
+            trend: `${stats.total_approved ?? 0} approved`,
             trendUp: false,
             icon: XCircle,
-          },
-          {
-            label: "Flagged / Escalated",
-            value: (stats.total_flagged ?? 0) + (stats.total_escalated ?? 0),
-            trend: `${stats.total_flagged ?? 0} flagged, ${stats.total_escalated ?? 0} escalated`,
-            trendUp: false,
-            icon: Flag,
           },
         ]
       : []),

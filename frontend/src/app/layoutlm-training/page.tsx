@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Brain, CheckCircle2, Loader2, Play, XCircle } from "lucide-react"
+import { Brain, CheckCircle2, Loader2, Play, Trash2, XCircle } from "lucide-react"
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
@@ -142,6 +142,7 @@ export default function LayoutLMTrainingPage() {
   const [loading, setLoading] = useState(true)
   const [training, setTraining] = useState(false)
   const [status, setStatus] = useState("")
+  const [deletingModelId, setDeletingModelId] = useState<string | null>(null)
 
   const visibleModels = useMemo(() => {
     const trainedModels = models.filter((model) => !model.is_baseline)
@@ -206,7 +207,13 @@ export default function LayoutLMTrainingPage() {
 
       const data = await response.json().catch(() => null)
       if (!response.ok) {
-        setStatus(data?.detail ?? "Training failed.")
+        const detail = data?.detail
+        const msg = Array.isArray(detail)
+          ? detail.map((e: { msg?: string }) => e.msg ?? String(e)).join("; ")
+          : typeof detail === "string"
+          ? detail
+          : "Training failed."
+        setStatus(msg)
         return
       }
 
@@ -219,6 +226,27 @@ export default function LayoutLMTrainingPage() {
       setStatus("Unable to reach the API.")
     } finally {
       setTraining(false)
+    }
+  }
+
+  const handleDelete = async (modelId: string) => {
+    if (!confirm(`Delete ${modelId}? This cannot be undone.`)) return
+    setDeletingModelId(modelId)
+    try {
+      const res = await fetch(`${API_BASE}/layoutlm/models/${encodeURIComponent(modelId)}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        setStatus(typeof data?.detail === "string" ? data.detail : "Failed to delete model.")
+        return
+      }
+      await loadTrainingState()
+    } catch {
+      setStatus("Unable to reach the API.")
+    } finally {
+      setDeletingModelId(null)
     }
   }
 
@@ -383,6 +411,7 @@ export default function LayoutLMTrainingPage() {
                   <th className="py-2 pr-4">F1</th>
                   <th className="py-2 pr-4">Created</th>
                   <th className="py-2 pr-4">Status</th>
+                  <th className="py-2"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
@@ -408,10 +437,19 @@ export default function LayoutLMTrainingPage() {
                       {model.rejected_count ?? "N/A"}
                     </td>
                     <td className="py-3 pr-4 text-muted-foreground">
-                      {formatPercent(model.metrics?.accuracy)}
+                      {model.metrics?.evaluation_mode === "too_small"
+                        ? <span className="text-xs text-amber-600 dark:text-amber-400">Too few samples</span>
+                        : model.metrics?.accuracy !== undefined
+                        ? <span title={model.metrics.evaluation_mode === "leave_one_out" ? "Leave-one-out CV (small dataset)" : model.metrics.evaluation_mode === "stratified_holdout" ? "Holdout test set" : ""}>
+                            {formatPercent(model.metrics.accuracy)}
+                            {model.metrics.evaluation_mode === "leave_one_out" && <span className="ml-0.5 text-[10px] text-amber-500" title="Leave-one-out CV">*</span>}
+                          </span>
+                        : "N/A"}
                     </td>
                     <td className="py-3 pr-4 text-muted-foreground">
-                      {formatPercent(model.metrics?.f1_approved)}
+                      {model.metrics?.evaluation_mode === "too_small"
+                        ? "—"
+                        : formatPercent(model.metrics?.f1_approved)}
                     </td>
                     <td className="py-3 pr-4 text-muted-foreground">
                       {formatDate(model.created_at)}
@@ -443,11 +481,27 @@ export default function LayoutLMTrainingPage() {
                         </span>
                       )}
                     </td>
+                    <td className="py-3">
+                      {!model.is_baseline && (
+                        <button
+                          onClick={() => handleDelete(model.id)}
+                          disabled={deletingModelId === model.id}
+                          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                        >
+                          {deletingModelId === model.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Trash2 className="h-3.5 w-3.5" />}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <p className="text-[11px] text-muted-foreground">
+            * Accuracy marked with * uses leave-one-out cross-validation (small dataset). Accuracy without * uses a held-out test set.
+          </p>
         </CardContent>
       </Card>
     </div>

@@ -90,6 +90,7 @@ type AnalysisResult = {
     model_type?: string
     model_id?: string
     model_version?: string
+    model_display_name?: string
     algorithm?: string
     anomaly_score?: number
     risk_level?: string
@@ -479,11 +480,13 @@ function ScoreBar({
   score,
   invert = false,
   triggered,
+  description,
 }: {
   label: string
   score?: number
   invert?: boolean
   triggered?: boolean
+  description?: string
 }) {
   const [animated, setAnimated] = useState(0)
 
@@ -521,9 +524,16 @@ function ScoreBar({
   return (
     <div className="flex flex-col gap-1.5 py-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          {label}
-        </span>
+        <div className="min-w-0">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            {label}
+          </span>
+          {description && (
+            <p className="mt-0.5 text-[11px] normal-case leading-snug tracking-normal text-muted-foreground">
+              {description}
+            </p>
+          )}
+        </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {triggered && (
             <span className="rounded-full bg-red-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
@@ -1223,8 +1233,8 @@ function AiTextDetectionCard({
         </div>
 
         {artifact.status === "skipped" ||
-        artifact.status === "insufficient_text" ||
-        artifact.status === "error" ? (
+          artifact.status === "insufficient_text" ||
+          artifact.status === "error" ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <AlertTriangle className="h-3.5 w-3.5" />
             {artifact.reason ?? artifact.reasoning ?? "Insufficient text for analysis"}
@@ -1263,16 +1273,19 @@ function AiTextDetectionCard({
                     label="Ollama judgment"
                     score={artifact.ollama_probability ?? undefined}
                     invert={true}
+                    description="Ollama's AI or template probability for this text."
                   />
                   <ScoreBar
-                    label="Heuristic fallback"
+                    label="Heuristic score"
                     score={artifact.heuristic_score}
                     invert={true}
+                    description="Local pattern score used when model judgment is weak."
                   />
                   <ScoreBar
                     label="Model confidence"
                     score={artifact.model_confidence ?? undefined}
                     invert={false}
+                    description="Ollama's self-reported confidence, not precision."
                   />
                 </div>
               )}
@@ -1506,7 +1519,6 @@ const DECISION_OPTIONS = [
   { value: "rejected", label: "Reject", color: "text-red-600 dark:text-red-400", bg: "bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30", icon: XCircle },
 ] as const
 
-const CONFIDENCE_OPTIONS = ["certain", "likely", "uncertain"] as const
 
 const DECISION_BADGE_STYLES: Record<string, string> = {
   approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
@@ -1526,7 +1538,7 @@ function ReviewPanel({ invoiceId, existingReview }: { invoiceId: string; existin
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
 
-  const canSubmit = decision && description.trim().length >= 10
+  const canSubmit = !!decision
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -1542,7 +1554,7 @@ function ReviewPanel({ invoiceId, existingReview }: { invoiceId: string; existin
         body: JSON.stringify({
           decision,
           confidence: confidence || null,
-          description: description.trim(),
+          description: description.trim() || null,
         }),
       })
 
@@ -1607,16 +1619,12 @@ function ReviewPanel({ invoiceId, existingReview }: { invoiceId: string; existin
 
         {!editing && review ? (
           <div className="flex flex-col gap-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Decision</span>
                 <p className={`mt-1 text-sm font-semibold capitalize ${DECISION_BADGE_STYLES[review.decision] ? "" : ""}`}>
                   {review.decision.replace(/_/g, " ")}
                 </p>
-              </div>
-              <div>
-                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Confidence</span>
-                <p className="mt-1 text-sm font-medium capitalize text-foreground">{review.confidence ?? "N/A"}</p>
               </div>
               <div>
                 <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Reviewed by</span>
@@ -1648,9 +1656,8 @@ function ReviewPanel({ invoiceId, existingReview }: { invoiceId: string; existin
                     <button
                       key={opt.value}
                       onClick={() => setDecision(opt.value)}
-                      className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-all ${
-                        selected ? `${opt.bg} ring-2 ring-current/20` : "border-border bg-background hover:bg-muted/50"
-                      }`}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-all ${selected ? `${opt.bg} ring-2 ring-current/20` : "border-border bg-background hover:bg-muted/50"
+                        }`}
                     >
                       <DIcon className={`h-4 w-4 ${selected ? opt.color : "text-muted-foreground"}`} />
                       <span className={`text-sm font-medium ${selected ? opt.color : "text-foreground"}`}>
@@ -1663,27 +1670,8 @@ function ReviewPanel({ invoiceId, existingReview }: { invoiceId: string; existin
             </div>
 
             <div>
-              <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Confidence</span>
-              <div className="flex gap-2">
-                {CONFIDENCE_OPTIONS.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setConfidence(c === confidence ? "" : c)}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium capitalize transition-all ${
-                      confidence === c
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-background text-muted-foreground hover:bg-muted/50"
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
               <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Description <span className="normal-case text-muted-foreground/60">(min 10 chars)</span>
+                Description <span className="normal-case text-muted-foreground/60">(optional)</span>
               </span>
               <textarea
                 value={description}
@@ -1692,9 +1680,6 @@ function ReviewPanel({ invoiceId, existingReview }: { invoiceId: string; existin
                 rows={3}
                 className="w-full rounded-lg border border-border bg-background/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
-              {description.length > 0 && description.trim().length < 10 && (
-                <p className="mt-1 text-[10px] text-red-500">{10 - description.trim().length} more characters needed</p>
-              )}
             </div>
 
             <div className="flex gap-2">
@@ -1738,8 +1723,9 @@ export default function AnalysisPage() {
   const [status, setStatus] = useState("")
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [reviewData, setReviewData] = useState<ReviewData | null>(null)
-  const [layoutlmModels, setLayoutlmModels] = useState<LayoutLMModel[]>([])
+const [layoutlmModels, setLayoutlmModels] = useState<LayoutLMModel[]>([])
   const [selectedLayoutlmModel, setSelectedLayoutlmModel] = useState("baseline_unsupervised")
+  const [modelsLoaded, setModelsLoaded] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [autoRunTriggered, setAutoRunTriggered] = useState(false)
 
@@ -1807,6 +1793,8 @@ export default function AnalysisPage() {
         setSelectedLayoutlmModel(defaultModelId ?? "baseline_unsupervised")
       } catch {
         setLayoutlmModels([])
+      } finally {
+        setModelsLoaded(true)
       }
     }
 
@@ -1825,8 +1813,36 @@ export default function AnalysisPage() {
 
     try {
       setIsRunning(true)
-      setStatus("Submitting analysis...")
+      setStatus("Checking analysis status...")
       setResult(null)
+
+      // 0. Check DB for existing result with this specific model
+      try {
+        const statusRes = await fetch(
+          `${API_BASE}/invoices/${selectedId}/analysis-status?model_id=${encodeURIComponent(selectedLayoutlmModel)}`,
+          { credentials: "include" }
+        )
+        if (statusRes.ok) {
+          const statusData = await statusRes.json()
+          if (statusData.status === "analyzed") {
+            setResult(statusData.result as AnalysisResult)
+            setStatus("Analysis complete.")
+            setIsRunning(false)
+            try {
+              const reviewRes = await fetch(
+                `${API_BASE}/invoices/${selectedId}/review`,
+                { credentials: "include" }
+              )
+              setReviewData(reviewRes.ok ? await reviewRes.json() : null)
+            } catch {
+              setReviewData(null)
+            }
+            return
+          }
+        }
+      } catch { /* fall through to run fresh analysis */ }
+
+      setStatus("Submitting analysis...")
 
       // 1. Trigger async analysis
       const query = new URLSearchParams({
@@ -1885,7 +1901,8 @@ export default function AnalysisPage() {
           const statusData = await statusRes.json()
 
           if (statusData.status === "analyzed") {
-            setResult(statusData.result as AnalysisResult)
+            const freshResult = statusData.result as AnalysisResult
+            setResult(freshResult)
             console.log("VeriPay Analysis Response:", statusData.result)
             setStatus("Analysis complete.")
             setIsRunning(false)
@@ -1930,10 +1947,10 @@ export default function AnalysisPage() {
   }, [canAnalyze, selectedId, selectedLayoutlmModel])
 
   useEffect(() => {
-    if (!autoRun || autoRunTriggered || !selectedId) return
+    if (!autoRun || autoRunTriggered || !selectedId || !modelsLoaded) return
     setAutoRunTriggered(true)
     void handleAnalyze()
-  }, [autoRun, autoRunTriggered, selectedId, handleAnalyze])
+  }, [autoRun, autoRunTriggered, selectedId, modelsLoaded, handleAnalyze])
 
   const aiStatusPill = () => {
     if (!result) return null
@@ -2309,17 +2326,12 @@ export default function AnalysisPage() {
                         <MetricRow
                           label="Model"
                           value={
-                            result.ai.model_type === "layoutlmv3_supervised_sklearn"
+                            result.ai.model_display_name ||
+                            (result.ai.model_type === "layoutlmv3_supervised_sklearn"
                               ? "LayoutLMv3 supervised classifier"
-                              : "LayoutLMv3 baseline anomaly model"
+                              : "LayoutLMv3 baseline anomaly model")
                           }
                         />
-                        {result.ai.model_version && (
-                          <MetricRow
-                            label="Model version"
-                            value={result.ai.model_version}
-                          />
-                        )}
                         {result.ai.prediction_label && (
                           <MetricRow
                             label="Prediction"
@@ -2495,12 +2507,7 @@ export default function AnalysisPage() {
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        API endpoint:{" "}
-        <span className="font-mono font-medium text-foreground">
-          {API_BASE}
-        </span>
-      </p>
+
     </div>
   )
 }

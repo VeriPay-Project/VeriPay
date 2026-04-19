@@ -958,19 +958,40 @@ async def _run_analysis_pipeline(
             "text_extraction_error": text_extraction_error,
         }
 
-        analysis_record = AnalysisResult(
-            invoice_id=invoice_id,
-            prediction=prediction,
-            confidence=confidence,
-            model_version=ai_result.get("model_version") or ai_result.get("model_id") or layoutlm_model_id,
-            crypto_json=crypto,
-            ai_json=ai_result,
-            rules_json=rules_result,
-            semantic_json=merged_fields,
-            fraud_score=ensemble.get("fraud_score"),
-            risk_level=ensemble.get("risk_level"),
+        analysis_record = (
+            db.query(AnalysisResult)
+            .filter(
+                AnalysisResult.invoice_id == invoice_id,
+                AnalysisResult.layoutlm_model_id == layoutlm_model_id,
+            )
+            .first()
         )
-        db.add(analysis_record)
+        if analysis_record:
+            analysis_record.prediction = prediction
+            analysis_record.confidence = confidence
+            analysis_record.model_version = ai_result.get("model_version") or ai_result.get("model_id") or layoutlm_model_id
+            analysis_record.crypto_json = crypto
+            analysis_record.ai_json = ai_result
+            analysis_record.rules_json = rules_result
+            analysis_record.semantic_json = merged_fields
+            analysis_record.fraud_score = ensemble.get("fraud_score")
+            analysis_record.risk_level = ensemble.get("risk_level")
+            analysis_record.created_at = datetime.utcnow()
+        else:
+            analysis_record = AnalysisResult(
+                invoice_id=invoice_id,
+                layoutlm_model_id=layoutlm_model_id,
+                prediction=prediction,
+                confidence=confidence,
+                model_version=ai_result.get("model_version") or ai_result.get("model_id") or layoutlm_model_id,
+                crypto_json=crypto,
+                ai_json=ai_result,
+                rules_json=rules_result,
+                semantic_json=merged_fields,
+                fraud_score=ensemble.get("fraud_score"),
+                risk_level=ensemble.get("risk_level"),
+            )
+            db.add(analysis_record)
         db.flush()
 
         # Store full result on analysis record for status polling
@@ -1073,6 +1094,7 @@ async def analyze_invoice(
 @router.get("/{invoice_id}/analysis-status")
 def get_analysis_status(
     invoice_id: int,
+    model_id: str | None = Query(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1094,22 +1116,27 @@ def get_analysis_status(
             "error": invoice.analysis_error,
         }
 
-    if invoice.status == "analyzed":
-        analysis = (
-            db.query(AnalysisResult)
-            .filter(AnalysisResult.invoice_id == invoice_id)
-            .order_by(AnalysisResult.created_at.desc())
-            .first()
-        )
-        if analysis and analysis.rules_json and "_full_result" in analysis.rules_json:
+    if invoice.status in ("analyzed", "reviewed"):
+        q = db.query(AnalysisResult).filter(AnalysisResult.invoice_id == invoice_id)
+        if model_id:
+            q = q.filter(AnalysisResult.layoutlm_model_id == model_id)
+        else:
+            q = q.order_by(AnalysisResult.created_at.desc())
+        analysis = q.first()
+
+        if not analysis:
+            # model-specific result not found yet
+            return {"status": "not_analyzed_with_model", "invoice_id": invoice_id}
+
+        if analysis.rules_json and "_full_result" in analysis.rules_json:
             full = analysis.rules_json["_full_result"]
         else:
             full = {
                 "invoice_id": invoice_id,
-                "ai": analysis.ai_json if analysis else None,
-                "rules": analysis.rules_json if analysis else None,
-                "crypto": analysis.crypto_json if analysis else None,
-                "semantic": analysis.semantic_json if analysis else None,
+                "ai": analysis.ai_json,
+                "rules": analysis.rules_json,
+                "crypto": analysis.crypto_json,
+                "semantic": analysis.semantic_json,
             }
         return {"status": "analyzed", "invoice_id": invoice_id, "result": full}
 

@@ -10,6 +10,7 @@ import numpy as np
 
 from services.layoutlm_model_registry import (
     BASELINE_MODEL_ID,
+    DEMO_MODEL_NAMES,
     load_supervised_model_bundle,
 )
 
@@ -128,6 +129,7 @@ def _run_supervised_analysis(invoice_path: str, layoutlm_model_id: str, user_id:
         "selected_model_id": layoutlm_model_id,
         "model_id": metadata["id"],
         "model_version": metadata["id"],
+        "model_display_name": DEMO_MODEL_NAMES.get(metadata.get("pseudo_rule_version") or "", metadata.get("name") or metadata["id"]),
         "algorithm": metadata.get("algorithm"),
         "training_sample_count": metadata.get("trained_sample_count"),
         "approved_count": metadata.get("approved_count"),

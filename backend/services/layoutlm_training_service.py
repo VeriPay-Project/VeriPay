@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import LeaveOneOut, cross_val_predict, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sqlalchemy.orm import Session
@@ -45,14 +45,21 @@ def get_layoutlm_dataset_summary(db: Session, user_id: int) -> dict[str, Any]:
     rows = _reviewed_invoice_rows(db, user_id)
     approved = 0
     rejected = 0
+    ready_approved = 0
+    ready_rejected = 0
     missing_files = 0
 
     for invoice, review in rows:
+        file_exists = Path(invoice.file_path).exists()
         if review.decision == "approved":
             approved += 1
+            if file_exists:
+                ready_approved += 1
         elif review.decision == "rejected":
             rejected += 1
-        if not Path(invoice.file_path).exists():
+            if file_exists:
+                ready_rejected += 1
+        if not file_exists:
             missing_files += 1
 
     ready = len(rows) - missing_files
@@ -61,9 +68,11 @@ def get_layoutlm_dataset_summary(db: Session, user_id: int) -> dict[str, Any]:
         "ready_for_training": ready,
         "approved_count": approved,
         "rejected_count": rejected,
+        "ready_approved": ready_approved,
+        "ready_rejected": ready_rejected,
         "missing_file_count": missing_files,
         "label_mapping": LABEL_MAPPING,
-        "can_train": ready >= 2 and approved > 0 and rejected > 0,
+        "can_train": ready_approved >= 1 and ready_rejected >= 1,
     }
 
 
@@ -125,10 +134,10 @@ def train_layoutlm_supervised_model(
     if len(set(y.tolist())) < 2:
         raise ValueError("Need at least one approved and one rejected invoice.")
 
-    iterations = max(50, min(int(iterations), 5000))
+    iterations = max(1, min(int(iterations), 5000))
     requested_epochs = int(epochs) if epochs is not None else None
     epoch_multiplier = max(1, requested_epochs or 1)
-    max_iter = max(50, min(iterations * epoch_multiplier, 5000))
+    max_iter = max(1, min(iterations * epoch_multiplier, 5000))
 
     classifier = Pipeline(
         steps=[
@@ -145,7 +154,7 @@ def train_layoutlm_supervised_model(
     )
 
     class_counts = {label: int((y == label).sum()) for label in set(y.tolist())}
-    can_split = len(y) >= 6 and min(class_counts.values()) >= 2
+    can_split = len(y) >= 10 and min(class_counts.values()) >= 2
 
     if can_split:
         X_train, X_test, y_train, y_test = train_test_split(
@@ -158,10 +167,14 @@ def train_layoutlm_supervised_model(
         classifier.fit(X_train, y_train)
         y_pred = classifier.predict(X_test)
         metrics = {**_metrics(y_test, y_pred), "evaluation_mode": "stratified_holdout"}
+    elif len(y) >= 4 and min(class_counts.values()) >= 2:
+        # Leave-one-out CV for small datasets — honest estimate without splitting issues
+        y_pred_loo = cross_val_predict(classifier, X, y, cv=LeaveOneOut())
+        classifier.fit(X, y)
+        metrics = {**_metrics(y, y_pred_loo), "evaluation_mode": "leave_one_out"}
     else:
         classifier.fit(X, y)
-        y_pred = classifier.predict(X)
-        metrics = {**_metrics(y, y_pred), "evaluation_mode": "training_set"}
+        metrics = {"evaluation_mode": "too_small"}
 
     centroid = X.mean(axis=0)
     distances = np.linalg.norm(X - centroid, axis=1)

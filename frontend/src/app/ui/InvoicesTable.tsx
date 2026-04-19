@@ -45,8 +45,6 @@ const statusStyles: Record<InvoiceStatus, string> = {
 const REVIEW_BADGE_STYLES: Record<string, { label: string; className: string }> = {
   approved: { label: "Approved", className: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30" },
   rejected: { label: "Rejected", className: "bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30" },
-  flagged_for_investigation: { label: "Flagged", className: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30" },
-  escalated: { label: "Escalated", className: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-500/10 dark:text-purple-300 dark:border-purple-500/30" },
   pending_review: { label: "Pending Review", className: "bg-muted text-muted-foreground border-border" },
 }
 

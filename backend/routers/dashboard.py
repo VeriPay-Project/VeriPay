@@ -77,12 +77,6 @@ def get_dashboard_stats(
             func.count(case(
                 (InvoiceReview.decision == "rejected", InvoiceReview.id),
             )).label("total_rejected"),
-            func.count(case(
-                (InvoiceReview.decision == "flagged_for_investigation", InvoiceReview.id),
-            )).label("total_flagged"),
-            func.count(case(
-                (InvoiceReview.decision == "escalated", InvoiceReview.id),
-            )).label("total_escalated"),
         )
         .join(Invoice, Invoice.invoice_id == InvoiceReview.invoice_id)
         .filter(Invoice.user_id == user.id)
@@ -103,8 +97,6 @@ def get_dashboard_stats(
         "total_pending_review": total_pending_review,
         "total_approved": review_stats.total_approved or 0,
         "total_rejected": review_stats.total_rejected or 0,
-        "total_flagged": review_stats.total_flagged or 0,
-        "total_escalated": review_stats.total_escalated or 0,
     }
 
 

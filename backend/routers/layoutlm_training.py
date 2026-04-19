@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from conn_db import get_db
 from dependencies import get_current_user
 from models.user import User
-from services.layoutlm_model_registry import list_layoutlm_models
+from services.layoutlm_model_registry import delete_supervised_model, list_layoutlm_models
 from services.layoutlm_training_service import (
     get_layoutlm_dataset_summary,
     train_layoutlm_supervised_model,
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/layoutlm", tags=["LayoutLMv3 Training"])
 
 
 class TrainLayoutLMRequest(BaseModel):
-    iterations: int = Field(default=200, ge=50, le=5000)
+    iterations: int = Field(default=200, ge=1, le=5000)
     epochs: int | None = Field(default=None, ge=1, le=100)
     min_samples: int = Field(default=2, ge=2, le=10000)
     test_size: float = Field(default=0.2, ge=0.1, le=0.5)
@@ -60,3 +60,15 @@ def train_model(
         "models": list_layoutlm_models(user.id),
         "dataset": get_layoutlm_dataset_summary(db, user.id),
     }
+
+
+@router.delete("/models/{model_id}")
+def delete_model(
+    model_id: str,
+    user: User = Depends(get_current_user),
+):
+    try:
+        delete_supervised_model(user.id, model_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "deleted", "model_id": model_id, "models": list_layoutlm_models(user.id)}

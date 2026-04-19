@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 # Ollama connection
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b")
-OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "18"))
+OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "45"))
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "12h")
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "1536"))
 OLLAMA_NUM_THREAD = int(
-    os.getenv("OLLAMA_NUM_THREAD", str(min(os.cpu_count() or 8, 12)))
+    os.getenv("OLLAMA_NUM_THREAD", str(min(os.cpu_count() or 4, 4)))
 )
 OLLAMA_MAX_RETRIES = int(os.getenv("OLLAMA_MAX_RETRIES", "0"))
 OLLAMA_MAX_TEXT_CHARS = int(os.getenv("OLLAMA_MAX_TEXT_CHARS", "2200"))
@@ -34,36 +34,15 @@ _client = httpx.AsyncClient(timeout=httpx.Timeout(OLLAMA_TIMEOUT, connect=10.0))
 
 # Prompt
 PROMPT = """\
-You are a precise invoice data extraction engine. Extract fields from the invoice text below.
+Extract invoice fields and judge whether the wording is AI-generated, templated, or synthetic.
+Return only valid JSON. Use null when unknown. Amounts must be numbers as strings with no currency symbols.
+For bank_account, remove spaces; combine routing/institution/transit/account parts when obvious.
+For ai_text_detection, judge text only, not layout. Use probability/confidence from 0.0 to 1.0.
+Allowed risk_level: low, medium, high.
+Allowed artifact_type: none, ai_generated_text, generic_template, synthetic_invoice_language, placeholder_invoice, uncertain.
 
-RULES:
-- Return ONLY a JSON object. No markdown, no explanation, no extra text.
-- If a field is not found, use null.
-- For monetary values: numbers only, no currency symbols, no commas (e.g. "1234.56").
-- For dates: keep the original format from the document.
-- For bank_account: remove spaces, keep full number.
-
-FIELD DEFINITIONS:
-
-vendor_name: The company/person ISSUING the invoice (seller). Usually at the top or header. NOT the customer.
-customer_name: The company/person BEING BILLED (buyer). Often after "Bill To", "Ship To", "Client". Use full name, not an ID.
-invoice_number: The invoice reference ID. May appear as "Invoice #", "Invoice No", "Order ID", "Reference".
-invoice_date: The date the invoice was issued. Usually near the top, called  date of issue or Date.
-total_amount: The FINAL amount due (after tax/shipping). Look for "Total", "Amount Due", "Balance Due".
-subtotal: Sum of line items BEFORE tax. Look for "Subtotal", "Sub-total".
-tax: Tax amount. Numeric only. Look for "Tax", "GST", "HST", "VAT".
-currency: ISO currency code (USD, CAD, EUR, GBP). Only if an ISO code or currency symbol is explicitly visible. Otherwise null.
-bank_name: Bank name from payment instructions section.
-bank_account: Full account number, IBAN, or combined routing+account. Remove spaces.
-  - Canadian format: if you see Institution No + Transit No + Account No separately, combine as "institution-transit-account" (e.g. "003-00123-1234567").
-  - US format: if you see Routing + Account separately, combine as "routing-account" (e.g. "011401533-1111222233330000").
-  - IBAN: return without spaces (e.g. "GB29NWBK60161331926819").
-institution_number: Canadian bank institution code (3 digits, e.g. "003" for RBC). Only if visible.
-transit_number: Canadian bank transit/branch number (5 digits). Only if visible.
-account_number_raw: The raw account number without routing/institution prefix. Fallback if bank_account cannot be assembled.
-
-Return this exact JSON structure:
-{"vendor_name": null, "customer_name": null, "invoice_number": null, "invoice_date": null, "total_amount": null, "subtotal": null, "tax": null, "currency": null, "bank_name": null, "bank_account": null, "institution_number": null, "transit_number": null, "account_number_raw": null}
+Return exactly this JSON shape:
+{"vendor_name": null, "customer_name": null, "invoice_number": null, "invoice_date": null, "total_amount": null, "subtotal": null, "tax": null, "currency": null, "bank_name": null, "bank_account": null, "institution_number": null, "transit_number": null, "account_number_raw": null, "ai_text_detection": {"is_ai_generated_or_template": false, "ai_text_probability": 0.0, "risk_level": "low", "artifact_type": "none", "confidence": 0.0, "reasons": []}}
 
 Invoice text:
 """
@@ -252,6 +231,7 @@ def _empty_extraction(status: str = "success", error: str | None = None) -> dict
         "subtotal": None,
         "tax": None,
         "currency": None,
+        "_ai_text_detection": None,
         "extraction_status": status,
         "extraction_error": error,
     }
@@ -616,6 +596,69 @@ def _normalize_field_value(field_name: str, value: object) -> str | None:
     return clean
 
 
+def _clamp_float(value: object, default: float = 0.0) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, min(1.0, numeric))
+
+
+def _normalize_ai_text_detection(value: object) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+
+    allowed_types = {
+        "none",
+        "ai_generated_text",
+        "generic_template",
+        "synthetic_invoice_language",
+        "placeholder_invoice",
+        "uncertain",
+    }
+
+    probability = _clamp_float(value.get("ai_text_probability"), 0.0)
+    confidence = _clamp_float(value.get("confidence"), probability)
+    risk_level = str(value.get("risk_level") or "").strip().lower()
+    artifact_type = str(value.get("artifact_type") or "none").strip().lower()
+
+    if artifact_type not in allowed_types:
+        artifact_type = "uncertain"
+
+    if risk_level not in {"low", "medium", "high"}:
+        if probability >= 0.70:
+            risk_level = "high"
+        elif probability >= 0.40:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+
+    raw_flag = value.get("is_ai_generated_or_template")
+    if isinstance(raw_flag, bool):
+        is_ai_generated_or_template = raw_flag
+    elif isinstance(raw_flag, str):
+        is_ai_generated_or_template = raw_flag.strip().lower() in {"true", "yes", "1"}
+    else:
+        is_ai_generated_or_template = probability >= 0.40
+
+    reasons_value = value.get("reasons")
+    if isinstance(reasons_value, list):
+        reasons = [str(item).strip() for item in reasons_value if str(item).strip()]
+    elif isinstance(reasons_value, str) and reasons_value.strip():
+        reasons = [reasons_value.strip()]
+    else:
+        reasons = []
+
+    return {
+        "is_ai_generated_or_template": is_ai_generated_or_template,
+        "ai_text_probability": round(probability, 4),
+        "risk_level": risk_level,
+        "artifact_type": artifact_type,
+        "confidence": round(confidence, 4),
+        "reasons": reasons[:6],
+    }
+
+
 async def _post_ollama(payload: dict) -> httpx.Response:
     for attempt in range(OLLAMA_MAX_RETRIES + 1):
         try:
@@ -655,7 +698,7 @@ async def extract_invoice_fields(text: str) -> dict:
             "temperature": 0,
             "num_ctx": OLLAMA_NUM_CTX,
             "num_thread": OLLAMA_NUM_THREAD,
-            "num_predict": 160,
+            "num_predict": 360,
         },
     }
 
@@ -721,6 +764,9 @@ async def extract_invoice_fields(text: str) -> dict:
     }
 
     result = _empty_extraction(status="success")
+    result["_ai_text_detection"] = _normalize_ai_text_detection(
+        parsed.get("ai_text_detection")
+    )
     explicit_currency = _detect_explicit_currency(source_text)
 
     for our_key, candidates in field_map.items():
@@ -770,7 +816,9 @@ async def extract_invoice_fields(text: str) -> dict:
 
     populated_fields = sum(
         1 for key, value in result.items()
-        if value is not None and not key.startswith("extraction_")
+        if value is not None
+        and not key.startswith("extraction_")
+        and not key.startswith("_")
     )
     logger.info(
         "Ollama extraction complete in %.2fs with %d fields populated "

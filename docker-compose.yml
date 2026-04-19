@@ -44,10 +44,10 @@ services:
       MODEL_WARMUP_ENABLED: "true"
       OLLAMA_URL: "http://ollama:11434/api/generate"
       OLLAMA_MODEL: "qwen2.5:0.5b"
-      OLLAMA_TIMEOUT: "18"
+      OLLAMA_TIMEOUT: "45"
       OLLAMA_KEEP_ALIVE: "12h"
       OLLAMA_NUM_CTX: "1536"
-      OLLAMA_NUM_THREAD: "12"
+      OLLAMA_NUM_THREAD: "4"
       OLLAMA_MAX_RETRIES: "0"
       OLLAMA_MAX_TEXT_CHARS: "2200"
     working_dir: /app/backend
@@ -57,6 +57,7 @@ services:
       - ./ai_pipeline:/app/ai_pipeline
       - ./test_pdfs:/app/test_pdfs
       - ./SuperviseTraining:/app/SuperviseTraining
+      - huggingface_cache:/root/.cache/huggingface
     ports:
       - "8000:8000"
     depends_on:
@@ -87,3 +88,4 @@ services:
 volumes:
   frontend_node_modules:
   ollama_data:
+  huggingface_cache:

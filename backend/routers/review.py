@@ -1,8 +1,4 @@
 from datetime import datetime
-from pathlib import Path
-import shutil
-import uuid
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
@@ -18,42 +14,12 @@ router = APIRouter(prefix="/invoices", tags=["Reviews"])
 
 ALLOWED_DECISIONS = {"approved", "rejected"}
 ALLOWED_CONFIDENCE = {"certain", "likely", "uncertain"}
-BASE_DIR = Path(__file__).resolve().parents[1]
-INVOICE_DIR = BASE_DIR / "invoices"
-
-
-def _move_invoice_to_labeled_folder(invoice: Invoice, decision: str) -> str | None:
-    source = Path(invoice.file_path)
-    if not source.exists():
-        return None
-
-    created_at = invoice.created_at or datetime.utcnow()
-    target_dir = (
-        INVOICE_DIR
-        / f"user_{invoice.user_id}"
-        / "labeled"
-        / decision
-        / created_at.strftime("%Y")
-        / created_at.strftime("%m")
-    )
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    suffix = source.suffix
-    target = target_dir / f"invoice_{invoice.invoice_id}{suffix}"
-    if source.resolve() == target.resolve():
-        return str(target)
-    if target.exists():
-        target = target_dir / f"invoice_{invoice.invoice_id}_{uuid.uuid4().hex[:8]}{suffix}"
-
-    shutil.move(str(source), str(target))
-    invoice.file_path = str(target)
-    return str(target)
 
 
 class ReviewRequest(BaseModel):
     decision: str
     confidence: str | None = None
-    description: str
+    description: str | None = None
 
     @field_validator("decision")
     @classmethod
@@ -75,11 +41,10 @@ class ReviewRequest(BaseModel):
 
     @field_validator("description")
     @classmethod
-    def validate_description(cls, v: str) -> str:
-        v = v.strip()
-        if len(v) < 10:
-            raise ValueError("description must be at least 10 characters")
-        return v
+    def validate_description(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return v.strip() or None
 
 
 class ReviewResponse(BaseModel):
@@ -89,7 +54,7 @@ class ReviewResponse(BaseModel):
     reviewer_name: str | None = None
     decision: str
     confidence: str | None
-    description: str
+    description: str | None
     reviewed_at: datetime
     updated_at: datetime
 
@@ -129,7 +94,6 @@ def create_or_update_review(
         )
         db.add(review)
 
-    labeled_path = _move_invoice_to_labeled_folder(invoice, body.decision)
     invoice.status = "reviewed"
 
     log_event(
@@ -138,7 +102,6 @@ def create_or_update_review(
         details={
             "decision": body.decision,
             "description": body.description,
-            "labeled_file_path": labeled_path,
         },
     )
 
