@@ -2183,6 +2183,8 @@ export default function AnalysisPage() {
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
           </div>
         </div>
 
@@ -2557,16 +2559,16 @@ export default function AnalysisPage() {
           ) : (
             <div className="grid gap-6 lg:grid-cols-3">
               <EmptyCard
-                icon={ShieldCheck}
-                title="Cryptographic verification results will appear here."
+                icon={Microscope}
+                title="Forensic analysis results will appear here."
+              />
+              <EmptyCard
+                icon={Sparkles}
+                title="AI text detection results will appear here."
               />
               <EmptyCard
                 icon={Brain}
                 title="AI Layout analysis results will appear here."
-              />
-              <EmptyCard
-                icon={ClipboardCheck}
-                title="Rule-based check results will appear here."
               />
             </div>
           )}
