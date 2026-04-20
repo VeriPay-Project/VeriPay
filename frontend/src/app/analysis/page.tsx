@@ -2045,7 +2045,7 @@ export default function AnalysisPage() {
         </Badge>
 
         <h1 className="text-3xl font-semibold tracking-tight text-balance text-foreground lg:text-4xl">
-          Analyze uploaded invoices.
+          Analyze Uploaded Invoices
         </h1>
 
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
