@@ -21,7 +21,13 @@ from models.user import User
 from dependencies import get_current_user
 from services.semantic_extraction_service import extract_invoice_fields
 from services.rules_service import run_rules_checks
-from services.analysis_service import run_ai_analysis
+from services.analysis_service import (
+    _fallback_layout_reason,
+    _layout_consistency_level,
+    _layout_consistency_score,
+    _layout_familiarity,
+    run_ai_analysis,
+)
 from dependencies import get_db
 from models.vendor_bank_binding import VendorBankBinding
 from models.vendor import Vendor
@@ -922,6 +928,8 @@ async def _run_analysis_pipeline(
             file_path,
             layoutlm_model_id,
             user_id,
+            extracted_text,
+            merged_fields,
         )
 
         try:
@@ -1171,23 +1179,59 @@ def get_analysis_status(
         ai_result = full.get("ai")
         if isinstance(ai_result, dict):
             ai_result = dict(ai_result)
-            if (
-                ai_result.get("model_type") == "layoutlmv3_supervised_sklearn"
-                and not ai_result.get("layout_familiarity")
-            ):
+            if ai_result.get("model_type") == "layoutlmv3_supervised_sklearn":
                 try:
                     distance_z_score = float(ai_result.get("distance_z_score"))
                 except (TypeError, ValueError):
                     distance_z_score = None
 
-                layout_familiarity, reliability_warning = _layout_familiarity(
-                    distance_z_score
-                )
-                ai_result["layout_familiarity"] = layout_familiarity
-                ai_result["unfamiliar_layout"] = layout_familiarity == "unfamiliar"
-                ai_result["reliability_warning"] = reliability_warning
+                layout_familiarity = ai_result.get("layout_familiarity")
+                if not layout_familiarity:
+                    layout_familiarity, reliability_warning = _layout_familiarity(
+                        distance_z_score
+                    )
+                    ai_result["layout_familiarity"] = layout_familiarity
+                    ai_result["unfamiliar_layout"] = layout_familiarity == "unfamiliar"
+                    ai_result["reliability_warning"] = reliability_warning
 
-                if layout_familiarity == "unfamiliar":
+                    if layout_familiarity == "unfamiliar":
+                        ai_result["risk_level"] = "HIGH"
+                        ai_result["review_required"] = True
+
+                if "layout_consistency_score" not in ai_result:
+                    consistency_score = _layout_consistency_score(distance_z_score)
+                    ai_result["layout_consistency_score"] = (
+                        None
+                        if consistency_score is None
+                        else float(round(consistency_score, 3))
+                    )
+                    ai_result["layout_consistency_level"] = _layout_consistency_level(
+                        consistency_score
+                    )
+
+                if not ai_result.get("layout_consistency_reason"):
+                    semantic_for_reason = (
+                        analysis.semantic_json
+                        if isinstance(analysis.semantic_json, dict)
+                        else full.get("semantic")
+                        if isinstance(full.get("semantic"), dict)
+                        else None
+                    )
+                    ai_result["layout_consistency_reason"] = _fallback_layout_reason(
+                        prediction_label=str(ai_result.get("prediction_label") or "unknown"),
+                        approval_probability=float(ai_result.get("approval_probability") or 0.0),
+                        rejection_probability=float(ai_result.get("rejection_probability") or 0.0),
+                        layout_consistency_score=ai_result.get("layout_consistency_score"),
+                        layout_familiarity=str(
+                            ai_result.get("layout_familiarity") or "unknown"
+                        ),
+                        distance_z_score=distance_z_score,
+                        semantic_fields=semantic_for_reason,
+                        extracted_text=invoice.extracted_text,
+                    )
+                    ai_result["layout_reason_source"] = "local_fallback"
+
+                if ai_result.get("layout_familiarity") == "unfamiliar":
                     ai_result["risk_level"] = "HIGH"
                     ai_result["review_required"] = True
 

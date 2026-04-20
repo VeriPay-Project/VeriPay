@@ -1,5 +1,5 @@
 {
-  "id": "layoutlm_supervised_v6_initial_plus_real_forged_20260420_053841",
-  "model_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_25/layoutlm_supervised_v6_initial_plus_real_forged_20260420_053841.joblib",
-  "metadata_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_25/layoutlm_supervised_v6_initial_plus_real_forged_20260420_053841.metadata.json"
+  "id": "layoutlm_supervised_v7_initial_real_forged_fake_pdfs_20260420_060943",
+  "model_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_25/layoutlm_supervised_v7_initial_real_forged_fake_pdfs_20260420_060943.joblib",
+  "metadata_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_25/layoutlm_supervised_v7_initial_real_forged_fake_pdfs_20260420_060943.metadata.json"
 }

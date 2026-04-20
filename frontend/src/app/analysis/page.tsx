@@ -100,6 +100,10 @@ type AnalysisResult = {
     rejection_probability?: number
     classifier_confidence?: number
     layout_familiarity?: string
+    layout_consistency_score?: number | null
+    layout_consistency_level?: string
+    layout_consistency_reason?: string
+    layout_reason_source?: string
     unfamiliar_layout?: boolean
     reliability_warning?: string | null
     training_sample_count?: number
@@ -603,6 +607,17 @@ function AnomalyScoreBar({
   riskLevel?: string
 }) {
   return <ScoreBar label="Anomaly score" score={score} riskLevel={riskLevel} />
+}
+
+function LayoutConsistencyBar({ score }: { score?: number | null }) {
+  return (
+    <ScoreBar
+      label="Layout consistency"
+      score={score ?? undefined}
+      meaning="positive"
+      description="Higher means the document layout is closer to the supervised training examples."
+    />
+  )
 }
 
 function CryptoTrustBar({ trust }: { trust?: string }) {
@@ -2260,6 +2275,25 @@ export default function AnalysisPage() {
                             </p>
                           </div>
                         )}
+                        {result.ai.layout_consistency_reason && (
+                          <div className="rounded-lg bg-muted/60 px-3 py-2">
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                                Layout reason
+                              </span>
+                              {result.ai.layout_reason_source && (
+                                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                                  {result.ai.layout_reason_source === "ollama"
+                                    ? "Ollama"
+                                    : "Local"}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs leading-relaxed text-muted-foreground">
+                              {result.ai.layout_consistency_reason}
+                            </p>
+                          </div>
+                        )}
                         {typeof result.ai.anomaly_score === "number" &&
                           result.ai.anomaly_score >= 0 &&
                           result.ai.anomaly_score <= 1 && (
@@ -2267,6 +2301,11 @@ export default function AnalysisPage() {
                               score={result.ai.anomaly_score}
                               riskLevel={result.ai.risk_level}
                             />
+                          )}
+                        {typeof result.ai.layout_consistency_score === "number" &&
+                          result.ai.layout_consistency_score >= 0 &&
+                          result.ai.layout_consistency_score <= 1 && (
+                            <LayoutConsistencyBar score={result.ai.layout_consistency_score} />
                           )}
 
                         <MetricRow
@@ -2318,6 +2357,12 @@ export default function AnalysisPage() {
                           <MetricRow
                             label="Layout familiarity"
                             value={result.ai.layout_familiarity}
+                          />
+                        )}
+                        {result.ai.layout_consistency_level && (
+                          <MetricRow
+                            label="Consistency level"
+                            value={result.ai.layout_consistency_level}
                           />
                         )}
                         <MetricRow
