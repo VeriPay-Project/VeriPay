@@ -1784,7 +1784,7 @@ export default function AnalysisPage() {
   const [status, setStatus] = useState("")
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [reviewData, setReviewData] = useState<ReviewData | null>(null)
-const [layoutlmModels, setLayoutlmModels] = useState<LayoutLMModel[]>([])
+  const [layoutlmModels, setLayoutlmModels] = useState<LayoutLMModel[]>([])
   const [selectedLayoutlmModel, setSelectedLayoutlmModel] = useState("baseline_unsupervised")
   const [modelsLoaded, setModelsLoaded] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
@@ -2224,6 +2224,114 @@ const [layoutlmModels, setLayoutlmModels] = useState<LayoutLMModel[]>([])
                 <ScoringCard scoring={result.scoring} />
                 <ForensicsCard forensics={result.forensics} />
                 <AiTextDetectionCard artifact={result.ai_artifact} />
+
+                <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-150">
+                  <CardContent className="flex flex-col gap-4 p-6">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+                        <Brain className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-foreground">
+                          AI Layout analysis
+                        </h3>
+                        {aiStatusPill()}
+                      </div>
+                    </div>
+
+                    {result.ai.status !== "ok" ? (
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        {result.ai.message ??
+                          "AI analysis did not return a usable result."}
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-border/40">
+                        {typeof result.ai.anomaly_score === "number" &&
+                          result.ai.anomaly_score >= 0 &&
+                          result.ai.anomaly_score <= 1 && (
+                            <AnomalyScoreBar
+                              score={result.ai.anomaly_score}
+                              riskLevel={result.ai.risk_level}
+                            />
+                          )}
+
+                        <MetricRow
+                          label="Model"
+                          value={
+                            result.ai.model_display_name ||
+                            (result.ai.model_type === "layoutlmv3_supervised_sklearn"
+                              ? "LayoutLMv3 supervised classifier"
+                              : "LayoutLMv3 baseline anomaly model")
+                          }
+                        />
+                        {result.ai.prediction_label && (
+                          <MetricRow
+                            label="Prediction"
+                            value={result.ai.prediction_label.replace(/_/g, " ")}
+                          />
+                        )}
+                        {typeof result.ai.approval_probability === "number" && (
+                          <MetricRow
+                            label="Approval probability"
+                            value={displayProbability(result.ai.approval_probability)}
+                          />
+                        )}
+                        {typeof result.ai.rejection_probability === "number" && (
+                          <MetricRow
+                            label="Rejection probability"
+                            value={displayProbability(result.ai.rejection_probability)}
+                          />
+                        )}
+                        {typeof result.ai.classifier_confidence === "number" && (
+                          <MetricRow
+                            label="Classifier confidence"
+                            value={displayProbability(result.ai.classifier_confidence)}
+                          />
+                        )}
+
+                        <div className="flex items-center justify-between py-2">
+                          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Risk level
+                          </span>
+                          <RiskPill level={result.ai.risk_level} />
+                        </div>
+
+                        <MetricRow
+                          label="Review required"
+                          value={displayValue(result.ai.review_required)}
+                        />
+                        <MetricRow
+                          label="Embedding distance"
+                          value={displayValue(result.ai.embedding_distance)}
+                        />
+                        <MetricRow
+                          label="Distance z-score"
+                          value={displayValue(result.ai.distance_z_score)}
+                        />
+                        {typeof result.ai.training_sample_count === "number" && (
+                          <MetricRow
+                            label="Training labels"
+                            value={displayValue(result.ai.training_sample_count)}
+                          />
+                        )}
+                      </div>
+                    )}
+
+                    {result.ai.explanations?.length ? (
+                      <ul className="flex flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2">
+                        {result.ai.explanations.map((note, idx) => (
+                          <li
+                            key={`${idx}-${note}`}
+                            className="text-xs leading-relaxed text-muted-foreground"
+                          >
+                            &bull; {note}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </CardContent>
+                </Card>
               </div>
 
               <div className="grid gap-6 lg:grid-cols-3">
@@ -2355,115 +2463,9 @@ const [layoutlmModels, setLayoutlmModels] = useState<LayoutLMModel[]>([])
                     </div>
                   </CardContent>
                 </Card>
+              </div>
 
-                <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-150">
-                  <CardContent className="flex flex-col gap-4 p-6">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-                        <Brain className="h-5 w-5 text-primary" />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-foreground">
-                          AI Layout analysis
-                        </h3>
-                        {aiStatusPill()}
-                      </div>
-                    </div>
-
-                    {result.ai.status !== "ok" ? (
-                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                        {result.ai.message ??
-                          "AI analysis did not return a usable result."}
-                      </p>
-                    ) : (
-                      <div className="divide-y divide-border/40">
-                        {typeof result.ai.anomaly_score === "number" &&
-                          result.ai.anomaly_score >= 0 &&
-                          result.ai.anomaly_score <= 1 && (
-                            <AnomalyScoreBar
-                              score={result.ai.anomaly_score}
-                              riskLevel={result.ai.risk_level}
-                            />
-                          )}
-
-                        <MetricRow
-                          label="Model"
-                          value={
-                            result.ai.model_display_name ||
-                            (result.ai.model_type === "layoutlmv3_supervised_sklearn"
-                              ? "LayoutLMv3 supervised classifier"
-                              : "LayoutLMv3 baseline anomaly model")
-                          }
-                        />
-                        {result.ai.prediction_label && (
-                          <MetricRow
-                            label="Prediction"
-                            value={result.ai.prediction_label.replace(/_/g, " ")}
-                          />
-                        )}
-                        {typeof result.ai.approval_probability === "number" && (
-                          <MetricRow
-                            label="Approval probability"
-                            value={displayProbability(result.ai.approval_probability)}
-                          />
-                        )}
-                        {typeof result.ai.rejection_probability === "number" && (
-                          <MetricRow
-                            label="Rejection probability"
-                            value={displayProbability(result.ai.rejection_probability)}
-                          />
-                        )}
-                        {typeof result.ai.classifier_confidence === "number" && (
-                          <MetricRow
-                            label="Classifier confidence"
-                            value={displayProbability(result.ai.classifier_confidence)}
-                          />
-                        )}
-
-                        <div className="flex items-center justify-between py-2">
-                          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                            Risk level
-                          </span>
-                          <RiskPill level={result.ai.risk_level} />
-                        </div>
-
-                        <MetricRow
-                          label="Review required"
-                          value={displayValue(result.ai.review_required)}
-                        />
-                        <MetricRow
-                          label="Embedding distance"
-                          value={displayValue(result.ai.embedding_distance)}
-                        />
-                        <MetricRow
-                          label="Distance z-score"
-                          value={displayValue(result.ai.distance_z_score)}
-                        />
-                        {typeof result.ai.training_sample_count === "number" && (
-                          <MetricRow
-                            label="Training labels"
-                            value={displayValue(result.ai.training_sample_count)}
-                          />
-                        )}
-                      </div>
-                    )}
-
-                    {result.ai.explanations?.length ? (
-                      <ul className="flex flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2">
-                        {result.ai.explanations.map((note, idx) => (
-                          <li
-                            key={`${idx}-${note}`}
-                            className="text-xs leading-relaxed text-muted-foreground"
-                          >
-                            &bull; {note}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </CardContent>
-                </Card>
-
+              <div className="grid gap-6 lg:grid-cols-1">
                 <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 delay-300">
                   <CardContent className="flex flex-col gap-4 p-6">
                     <div className="flex items-center gap-3">

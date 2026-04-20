@@ -24,8 +24,8 @@ from services.bank_utils import (
 
 from models.vendor import Vendor
 from models.vendor_bank_binding import VendorBankBinding
-from dependencies import get_db, get_current_user
-from models.user import User
+from dependencies import get_db
+# from models.user import User
 from schemas.vendor import PlaidLinkTokenResponse, PlaidPublicTokenExchangeRequest
 from services.audit_service import log_event
 
@@ -114,7 +114,6 @@ def _build_plaid_account_identifier(
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def register_vendor(
     request: Request,
-    user: User = Depends(get_current_user),
     vendor_name: str = Form(...),
     certificate: UploadFile | None = File(None),
     db: Session = Depends(get_db)
@@ -160,14 +159,13 @@ async def register_vendor(
         vendor_name=vendor_name,
         public_key_fingerprint=fingerprint,
         status="active",
-        user_id=user.id,
     )
 
     db.add(vendor)
     db.flush()
 
     log_event(
-        db, action="create_vendor", user_id=user.id,
+        db, action="create_vendor",
         resource_type="vendor", resource_id=str(vendor.vendor_id),
         details={"vendor_name": vendor_name,
                  "has_certificate": fingerprint is not None},
@@ -191,7 +189,6 @@ def register_vendor_bank_binding(
     request: Request,
     vendor_id: int,
     payload: dict,
-    user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     vendor = _get_vendor_or_404(db, vendor_id)
@@ -309,7 +306,7 @@ def register_vendor_bank_binding(
     db.flush()
 
     log_event(
-        db, action="add_bank_binding", user_id=user.id,
+        db, action="add_bank_binding",
         resource_type="bank_binding", resource_id=str(binding.id),
         details={
             "vendor_id": vendor_id,
@@ -341,13 +338,12 @@ def register_vendor_bank_binding(
 )
 def create_vendor_plaid_link_token(
     vendor_id: int,
-    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _get_vendor_or_404(db, vendor_id)
 
     try:
-        link_token = create_link_token(f"vendor-{vendor_id}-user-{user.id}")
+        link_token = create_link_token(f"vendor-{vendor_id}")
     except PlaidServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -362,7 +358,6 @@ def exchange_vendor_plaid_token(
     request: Request,
     vendor_id: int,
     payload: PlaidPublicTokenExchangeRequest,
-    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _get_vendor_or_404(db, vendor_id)
@@ -405,7 +400,7 @@ def exchange_vendor_plaid_token(
         existing.verification_reference = "plaid"
         existing.is_active = True
         log_event(
-            db, action="add_bank_binding", user_id=user.id,
+            db, action="add_bank_binding",
             resource_type="bank_binding", resource_id=str(existing.id),
             details={"vendor_id": vendor_id, "masked_account": masked_account,
                      "country": country, "verification_method": "plaid", "re_linked": True},
@@ -439,7 +434,7 @@ def exchange_vendor_plaid_token(
     db.add(binding)
     db.flush()
     log_event(
-        db, action="add_bank_binding", user_id=user.id,
+        db, action="add_bank_binding",
         resource_type="bank_binding", resource_id=str(binding.id),
         details={"vendor_id": vendor_id, "masked_account": masked_account,
                  "country": country, "verification_method": "plaid"},
@@ -465,7 +460,6 @@ def exchange_vendor_plaid_token(
 @router.get("/{vendor_id}", status_code=status.HTTP_200_OK)
 def get_vendor(
     vendor_id: int,
-    user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     vendor = _get_vendor_or_404(db, vendor_id)
@@ -484,7 +478,6 @@ def get_vendor(
 @router.get("/{vendor_id}/bank-bindings", status_code=status.HTTP_200_OK)
 def get_vendor_bank_bindings(
     vendor_id: int,
-    user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     _get_vendor_or_404(db, vendor_id)
@@ -516,7 +509,6 @@ def get_vendor_bank_bindings(
 # =========================
 @router.get("/")
 def list_vendors(
-    user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     vendors = db.query(Vendor).all()
