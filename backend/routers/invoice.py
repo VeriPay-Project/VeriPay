@@ -1,6 +1,39 @@
 # ──────────────────────────────────────────────
 # IMPORTS
 # ──────────────────────────────────────────────
+from pydantic import ValidationError
+from conn_db import SessionLocal
+from services.audit_service import log_event
+from services.ensemble_scorer import compute_fraud_score
+from services.ai_artifact_service import run_ai_artifact_detection
+from services.image_service import render_invoice_preview
+from services.highlight_service import build_highlights
+from services.forensics_service import run_forensics_analysis
+from services.bank_utils import (
+    detect_account_type,
+    hash_account,
+    mask_account,
+    normalize_account_by_country,
+)
+from services.iban_registry_service import verify_iban_external
+from schemas.invoice import InvoiceVendorMatchRequest, InvoiceVendorMatchResponse
+from models.user import User
+from dependencies import get_current_user
+from services.semantic_extraction_service import extract_invoice_fields
+from services.rules_service import run_rules_checks
+from services.analysis_service import run_ai_analysis
+from dependencies import get_db
+from models.vendor_bank_binding import VendorBankBinding
+from models.vendor import Vendor
+from models.analysis_result import AnalysisResult
+from models.invoice import Invoice
+from utils.hashing import compute_sha256
+from integrity.vendor_bank_service import verify_vendor_bank_account
+from integrity.vendor_identity_service import verify_vendor_identity
+from integrity.integrity_service import evaluate_integrity
+from extraction.image_extractor import extract_image_content
+from extraction.pdf_extractor import extract_pdf_content
+from sqlalchemy.orm import Session
 import asyncio
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -26,41 +59,6 @@ def _get_user_or_ip(request: Request) -> str:
         return f"user:{user_id}"
     return get_remote_address(request)
 
-from pydantic import ValidationError
-from sqlalchemy.orm import Session
-
-from extraction.pdf_extractor import extract_pdf_content
-from extraction.image_extractor import extract_image_content
-from integrity.integrity_service import evaluate_integrity
-from integrity.vendor_identity_service import verify_vendor_identity
-from integrity.vendor_bank_service import verify_vendor_bank_account
-from utils.hashing import compute_sha256
-from models.invoice import Invoice
-from models.analysis_result import AnalysisResult
-from models.vendor import Vendor
-from models.vendor_bank_binding import VendorBankBinding
-from dependencies import get_db
-from services.analysis_service import run_ai_analysis
-from services.rules_service import run_rules_checks
-from services.semantic_extraction_service import extract_invoice_fields
-from dependencies import get_current_user
-from models.user import User
-from schemas.invoice import InvoiceVendorMatchRequest, InvoiceVendorMatchResponse
-from services.iban_registry_service import verify_iban_external
-from services.bank_utils import (
-    detect_account_type,
-    hash_account,
-    mask_account,
-    normalize_account_by_country,
-)
-from services.forensics_service import run_forensics_analysis
-from services.highlight_service import build_highlights
-from services.image_service import render_invoice_preview
-from services.ai_artifact_service import run_ai_artifact_detection
-from services.ensemble_scorer import compute_fraud_score
-from services.audit_service import log_event
-from conn_db import SessionLocal
-
 
 # ──────────────────────────────────────────────
 # ROUTER CONFIG
@@ -79,7 +77,7 @@ ALLOWED_MIME_TYPES = {
 
 # ── Upload security constants ─────────────────────────────────────────────
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024           # 50 MB hard limit
-MAX_PDF_PAGES    = 200
+MAX_PDF_PAGES = 200
 # Pillow safe pixel limit — prevents decompression bomb attacks
 PIL.Image.MAX_IMAGE_PIXELS = 178_956_970
 
@@ -152,7 +150,8 @@ def _extract_invoice_fields_regex(text: str) -> dict:
         "bank_name":         None,
         "bank_account":      None,
         "institution_number": None,   # Canadian institution code (3 digits)
-        "transit_number":    None,    # Canadian transit/branch number (5 digits)
+        # Canadian transit/branch number (5 digits)
+        "transit_number":    None,
         "routing_number":    None,    # US routing number (9 digits)
         "account_number":    None,    # Raw account number
         "invoice_number":    None,
@@ -167,19 +166,23 @@ def _extract_invoice_fields_regex(text: str) -> dict:
     if not text:
         return fields
 
-    vendor_match = re.search(r"(?:vendor|supplier|from)\s*[:\-]\s*([^\n\r]+)", text, re.IGNORECASE)
+    vendor_match = re.search(
+        r"(?:vendor|supplier|from)\s*[:\-]\s*([^\n\r]+)", text, re.IGNORECASE)
     if vendor_match:
         fields["vendor_name"] = vendor_match.group(1).strip()
 
-    bank_match = re.search(r"(?:bank\s*name|bank)\s*[:\-]\s*([^\n\r]+)", text, re.IGNORECASE)
+    bank_match = re.search(
+        r"(?:bank\s*name|bank)\s*[:\-]\s*([^\n\r]+)", text, re.IGNORECASE)
     if bank_match:
         fields["bank_name"] = bank_match.group(1).strip()
 
-    invoice_match = re.search(r"(?:invoice\s*(?:no|number)?\s*[:#-]\s*([A-Z0-9\-\/]+))", text, re.IGNORECASE)
+    invoice_match = re.search(
+        r"(?:invoice\s*(?:no|number)?\s*[:#-]\s*([A-Z0-9\-\/]+))", text, re.IGNORECASE)
     if invoice_match:
         fields["invoice_number"] = invoice_match.group(1).strip()
 
-    total_match = re.search(r"(?:total|amount due)\s*[:\-]?\s*\$?\s*([0-9,]+\.\d{2})", text, re.IGNORECASE)
+    total_match = re.search(
+        r"(?:total|amount due)\s*[:\-]?\s*\$?\s*([0-9,]+\.\d{2})", text, re.IGNORECASE)
     if total_match:
         fields["total_amount"] = total_match.group(1)
 
@@ -189,7 +192,8 @@ def _extract_invoice_fields_regex(text: str) -> dict:
         text,
         re.IGNORECASE,
     )
-    fields["institution_number"] = institution_match.group(1) if institution_match else None
+    fields["institution_number"] = institution_match.group(
+        1) if institution_match else None
 
     # Canadian transit number — 5 digits
     transit_match = re.search(
@@ -197,7 +201,8 @@ def _extract_invoice_fields_regex(text: str) -> dict:
         text,
         re.IGNORECASE,
     )
-    fields["transit_number"] = transit_match.group(1) if transit_match else None
+    fields["transit_number"] = transit_match.group(
+        1) if transit_match else None
 
     # US routing number — 9 digits
     routing_match = re.search(
@@ -205,7 +210,8 @@ def _extract_invoice_fields_regex(text: str) -> dict:
         text,
         re.IGNORECASE,
     )
-    fields["routing_number"] = routing_match.group(1) if routing_match else None
+    fields["routing_number"] = routing_match.group(
+        1) if routing_match else None
 
     # Raw account number
     account_match = re.search(
@@ -213,7 +219,8 @@ def _extract_invoice_fields_regex(text: str) -> dict:
         text,
         re.IGNORECASE,
     )
-    fields["account_number"] = account_match.group(1) if account_match else None
+    fields["account_number"] = account_match.group(
+        1) if account_match else None
 
     for pattern in ACCOUNT_PATTERNS:
         match = re.search(pattern, text, re.IGNORECASE)
@@ -304,12 +311,15 @@ def _account_matches(
         invoice_country,
         invoice_account_number,
     )
-    hashed_account = hash_account(normalized_account) if normalized_account else None
-    masked_normalized_account = mask_account(normalized_account) if normalized_account else None
+    hashed_account = hash_account(
+        normalized_account) if normalized_account else None
+    masked_normalized_account = mask_account(
+        normalized_account) if normalized_account else None
 
     binding_masked = _compact_masked_account(binding.account_masked)
     invoice_masked_input = _compact_masked_account(invoice_account_number)
-    normalized_masked_input = _compact_masked_account(masked_normalized_account)
+    normalized_masked_input = _compact_masked_account(
+        masked_normalized_account)
 
     return any(
         (
@@ -397,7 +407,8 @@ async def match_invoice_vendor(
     try:
         payload = await request.json()
     except Exception as exc:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+        raise HTTPException(
+            status_code=400, detail="Invalid JSON payload") from exc
 
     try:
         match_request = InvoiceVendorMatchRequest.model_validate(payload)
@@ -439,7 +450,8 @@ async def match_invoice_vendor(
 
     best_vendor = max(
         vendor_candidates,
-        key=lambda vendor: _vendor_name_rank(vendor_name_query, vendor.vendor_name),
+        key=lambda vendor: _vendor_name_rank(
+            vendor_name_query, vendor.vendor_name),
     )
 
     try:
@@ -643,7 +655,8 @@ async def upload_invoice(
         except HTTPException:
             raise
         except Exception as exc:
-            logger.warning("PDF page-count check failed for %s: %s", file.filename, exc)
+            logger.warning(
+                "PDF page-count check failed for %s: %s", file.filename, exc)
 
     # ── Image decompression bomb check via Pillow
     if file_type == "image":
@@ -659,7 +672,8 @@ async def upload_invoice(
     file_hash = compute_sha256(contents)
 
     if db.query(Invoice).filter(Invoice.file_hash == file_hash).first():
-        raise HTTPException(status_code=409, detail="Duplicate invoice detected")
+        raise HTTPException(
+            status_code=409, detail="Duplicate invoice detected")
 
     file_path = _new_invoice_storage_path(user.id, extension)
     with open(file_path, "wb") as f:
@@ -674,9 +688,11 @@ async def upload_invoice(
             if file_type == "pdf"
             else extract_image_content(file_path)
         )
-        upload_extracted_text = data.get("text", "") if isinstance(data, dict) else ""
+        upload_extracted_text = data.get(
+            "text", "") if isinstance(data, dict) else ""
     except Exception as exc:
-        logger.warning("Text extraction during upload failed for %s: %s", file_path, exc)
+        logger.warning(
+            "Text extraction during upload failed for %s: %s", file_path, exc)
 
     crypto_raw = await evaluate_integrity(file_path=file_path, file_type=file_type)
 
@@ -703,8 +719,10 @@ async def upload_invoice(
         is_signed=crypto["signature_present"],
         crypto_valid=(crypto["signature_integrity"] == "valid"),
         signer_fingerprint=crypto_raw.get("signer_fingerprint"),
-        crypto_json=crypto,                         # cached — reused by analysis (Fix 4)
-        extracted_text=upload_extracted_text or None,  # cached — reused by analysis (Fix 4)
+        # cached — reused by analysis (Fix 4)
+        crypto_json=crypto,
+        # cached — reused by analysis (Fix 4)
+        extracted_text=upload_extracted_text or None,
         status="uploaded"
     )
 
@@ -762,7 +780,8 @@ async def _run_analysis_pipeline(
         ).first()
 
         if not invoice:
-            logger.error("Background analysis: invoice %s not found.", invoice_id)
+            logger.error(
+                "Background analysis: invoice %s not found.", invoice_id)
             return
 
         file_path = invoice.file_path
@@ -783,7 +802,8 @@ async def _run_analysis_pipeline(
                     if file_type == "pdf"
                     else extract_image_content(file_path)
                 )
-                extracted_text = data.get("text", "") if isinstance(data, dict) else ""
+                extracted_text = data.get(
+                    "text", "") if isinstance(data, dict) else ""
             except Exception as exc:
                 text_extraction_status = "failed"
                 text_extraction_error = f"{type(exc).__name__}: {exc}"
@@ -816,7 +836,8 @@ async def _run_analysis_pipeline(
         # ── LLM FIELD EXTRACTION (Ollama, from extracted text) ────────────────
         semantic_fields = await extract_invoice_fields(extracted_text)
         ai_text_ollama = semantic_fields.pop("_ai_text_detection", None)
-        llm_extraction_status = semantic_fields.get("extraction_status", "success")
+        llm_extraction_status = semantic_fields.get(
+            "extraction_status", "success")
         llm_extraction_error = semantic_fields.get("extraction_error")
         if llm_extraction_status == "failed":
             logger.warning("LLM extraction failed for invoice %s: %s",
@@ -825,10 +846,10 @@ async def _run_analysis_pipeline(
         merged_fields = _merge_semantic_first(semantic_fields, regex_fields)
 
         # ── BANK ACCOUNT ASSEMBLY ────────────────────────────────────────────
-        routing     = merged_fields.get("routing_number")
-        account     = merged_fields.get("account_number")
+        routing = merged_fields.get("routing_number")
+        account = merged_fields.get("account_number")
         institution = merged_fields.get("institution_number")
-        transit     = merged_fields.get("transit_number")
+        transit = merged_fields.get("transit_number")
 
         if institution and transit and account:
             raw_bank_account = f"{institution}-{transit}-{account}"
@@ -855,7 +876,8 @@ async def _run_analysis_pipeline(
                 logger.warning("Invalid bank format before normalization: %s",
                                raw_bank_account)
 
-        normalized_bank_account = normalize_account_by_country(country, raw_bank_account)
+        normalized_bank_account = normalize_account_by_country(
+            country, raw_bank_account)
         merged_fields["bank_account"] = normalized_bank_account or raw_bank_account
         merged_fields["account_type"] = account_type
         merged_fields["country"] = country
@@ -863,7 +885,8 @@ async def _run_analysis_pipeline(
         external_verification = None
         if (merged_fields.get("bank_account")
                 and account_type == "iban" and country == "OTHER"):
-            external_verification = verify_iban_external(merged_fields["bank_account"])
+            external_verification = verify_iban_external(
+                merged_fields["bank_account"])
 
         bank_result = verify_vendor_bank_account(
             db=db,
@@ -882,8 +905,10 @@ async def _run_analysis_pipeline(
              if k not in ("image_bgr", "all_pages_bgr")}
             if prepared_preview else None
         )
-        shared_image = prepared_preview.get("image_bgr") if prepared_preview else None
-        all_pages = prepared_preview.get("all_pages_bgr") if prepared_preview else None
+        shared_image = prepared_preview.get(
+            "image_bgr") if prepared_preview else None
+        all_pages = prepared_preview.get(
+            "all_pages_bgr") if prepared_preview else None
 
         forensics_result = await asyncio.to_thread(
             run_forensics_analysis,
@@ -902,7 +927,8 @@ async def _run_analysis_pipeline(
         try:
             rules_result = await asyncio.to_thread(run_rules_checks, file_path, file_type)
         except Exception as exc:
-            rules_result = {"status": "error", "message": f"Rules analysis failed: {exc}"}
+            rules_result = {"status": "error",
+                            "message": f"Rules analysis failed: {exc}"}
 
         ai_artifact_result = await asyncio.to_thread(
             run_ai_artifact_detection,
@@ -969,7 +995,8 @@ async def _run_analysis_pipeline(
         if analysis_record:
             analysis_record.prediction = prediction
             analysis_record.confidence = confidence
-            analysis_record.model_version = ai_result.get("model_version") or ai_result.get("model_id") or layoutlm_model_id
+            analysis_record.model_version = ai_result.get(
+                "model_version") or ai_result.get("model_id") or layoutlm_model_id
             analysis_record.crypto_json = crypto
             analysis_record.ai_json = ai_result
             analysis_record.rules_json = rules_result
@@ -983,7 +1010,8 @@ async def _run_analysis_pipeline(
                 layoutlm_model_id=layoutlm_model_id,
                 prediction=prediction,
                 confidence=confidence,
-                model_version=ai_result.get("model_version") or ai_result.get("model_id") or layoutlm_model_id,
+                model_version=ai_result.get("model_version") or ai_result.get(
+                    "model_id") or layoutlm_model_id,
                 crypto_json=crypto,
                 ai_json=ai_result,
                 rules_json=rules_result,
@@ -1083,7 +1111,8 @@ async def analyze_invoice(
     invoice.analysis_error = None
     db.commit()
 
-    background_tasks.add_task(_run_analysis_background, invoice_id, user.id, layoutlm_model_id)
+    background_tasks.add_task(_run_analysis_background,
+                              invoice_id, user.id, layoutlm_model_id)
 
     return {"status": "analyzing", "invoice_id": invoice_id, "layoutlm_model_id": layoutlm_model_id}
 
@@ -1117,7 +1146,8 @@ def get_analysis_status(
         }
 
     if invoice.status in ("analyzed", "reviewed"):
-        q = db.query(AnalysisResult).filter(AnalysisResult.invoice_id == invoice_id)
+        q = db.query(AnalysisResult).filter(
+            AnalysisResult.invoice_id == invoice_id)
         if model_id:
             q = q.filter(AnalysisResult.layoutlm_model_id == model_id)
         else:
@@ -1161,7 +1191,8 @@ def get_analysis_status(
             )
 
             if bank_account and account_type == "iban" and country == "OTHER":
-                full["external_verification"] = verify_iban_external(bank_account)
+                full["external_verification"] = verify_iban_external(
+                    bank_account)
 
         return {"status": "analyzed", "invoice_id": invoice_id, "result": full}
 
@@ -1195,6 +1226,47 @@ def delete_invoice(
         try:
             os.remove(file_path)
         except OSError as exc:
-            logger.warning("Failed to remove invoice file %s: %s", file_path, exc)
+            logger.warning(
+                "Failed to remove invoice file %s: %s", file_path, exc)
 
     return {"message": "Invoice deleted"}
+
+
+@router.get("/{invoice_id}/analysis-latest")
+def get_latest_analysis(
+    invoice_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invoice = db.query(Invoice).filter(
+        Invoice.invoice_id == invoice_id,
+        Invoice.user_id == user.id
+    ).first()
+
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    analysis = (
+        db.query(AnalysisResult)
+        .filter(AnalysisResult.invoice_id == invoice_id)
+        .order_by(AnalysisResult.created_at.desc())
+        .first()
+    )
+
+    if not analysis:
+        return {"detail": "No analysis found"}
+
+    # ✅ USE YOUR EXISTING FULL RESULT (THIS IS THE KEY)
+    if analysis.rules_json and "_full_result" in analysis.rules_json:
+        return analysis.rules_json["_full_result"]
+
+    # fallback (should rarely happen)
+    return {
+        "invoice_id": invoice_id,
+        "crypto": analysis.crypto_json,
+        "ai": analysis.ai_json,
+        "rules": analysis.rules_json,
+        "semantic": analysis.semantic_json,
+        "fraud_score": analysis.fraud_score,
+        "risk_level": analysis.risk_level,
+    }
