@@ -1129,7 +1129,7 @@ def get_analysis_status(
             return {"status": "not_analyzed_with_model", "invoice_id": invoice_id}
 
         if analysis.rules_json and "_full_result" in analysis.rules_json:
-            full = analysis.rules_json["_full_result"]
+            full = dict(analysis.rules_json["_full_result"])
         else:
             full = {
                 "invoice_id": invoice_id,
@@ -1138,6 +1138,31 @@ def get_analysis_status(
                 "crypto": analysis.crypto_json,
                 "semantic": analysis.semantic_json,
             }
+
+        semantic = (
+            analysis.semantic_json
+            if isinstance(analysis.semantic_json, dict)
+            else full.get("semantic")
+            if isinstance(full.get("semantic"), dict)
+            else None
+        )
+        if semantic:
+            bank_account = semantic.get("bank_account")
+            country = semantic.get("country")
+            account_type = semantic.get("account_type")
+
+            full["semantic"] = semantic
+            full["vendor_bank"] = verify_vendor_bank_account(
+                db=db,
+                vendor_name=semantic.get("vendor_name"),
+                bank_account=bank_account,
+                country=country,
+                account_type=account_type,
+            )
+
+            if bank_account and account_type == "iban" and country == "OTHER":
+                full["external_verification"] = verify_iban_external(bank_account)
+
         return {"status": "analyzed", "invoice_id": invoice_id, "result": full}
 
     # uploaded / other statuses

@@ -475,16 +475,62 @@ function RiskPill({ level }: { level?: string }) {
   )
 }
 
+type ScoreMeaning = "risk" | "positive"
+
+function riskColorClassFromLevel(level?: string) {
+  const normalized = level?.toLowerCase() ?? ""
+
+  if (normalized.includes("critical")) return "bg-red-700 dark:bg-red-400"
+  if (normalized.includes("high")) return "bg-red-500"
+  if (normalized.includes("medium")) return "bg-amber-500"
+  if (normalized.includes("low")) return "bg-emerald-500"
+
+  return null
+}
+
+function scoreColorClass(pct: number, meaning: ScoreMeaning, riskLevel?: string) {
+  if (meaning === "risk") {
+    const riskColor = riskColorClassFromLevel(riskLevel)
+    if (riskColor) return riskColor
+
+    return pct >= 70
+      ? "bg-red-500"
+      : pct >= 40
+        ? "bg-amber-500"
+        : "bg-emerald-500"
+  }
+
+  return pct >= 70
+    ? "bg-emerald-500"
+    : pct >= 40
+      ? "bg-amber-500"
+      : "bg-red-500"
+}
+
+function riskLevelFromScore(score: number) {
+  if (score >= 0.75) return "critical"
+  if (score >= 0.5) return "high"
+  if (score >= 0.25) return "medium"
+  return "low"
+}
+
+function riskLevelForLayer(score?: number, triggered?: boolean) {
+  if (triggered) return "high"
+  return typeof score === "number" ? riskLevelFromScore(score) : undefined
+}
+
 function ScoreBar({
   label,
   score,
-  invert = false,
+  meaning = "risk",
+  riskLevel,
   triggered,
   description,
 }: {
   label: string
   score?: number
-  invert?: boolean
+  meaning?: ScoreMeaning
+  riskLevel?: string
   triggered?: boolean
   description?: string
 }) {
@@ -509,17 +555,7 @@ function ScoreBar({
   if (score === undefined || score === null) return null
 
   const pct = animated
-  const color = invert
-    ? pct >= 70
-      ? "bg-red-500"
-      : pct >= 40
-        ? "bg-amber-500"
-        : "bg-emerald-500"
-    : pct >= 70
-      ? "bg-emerald-500"
-      : pct >= 40
-        ? "bg-amber-500"
-        : "bg-red-500"
+  const color = scoreColorClass(pct, meaning, riskLevel)
 
   return (
     <div className="flex flex-col gap-1.5 py-2">
@@ -556,8 +592,14 @@ function ScoreBar({
   )
 }
 
-function AnomalyScoreBar({ score }: { score?: number }) {
-  return <ScoreBar label="Anomaly score" score={score} invert={false} />
+function AnomalyScoreBar({
+  score,
+  riskLevel,
+}: {
+  score?: number
+  riskLevel?: string
+}) {
+  return <ScoreBar label="Anomaly score" score={score} riskLevel={riskLevel} />
 }
 
 function CryptoTrustBar({ trust }: { trust?: string }) {
@@ -1012,7 +1054,11 @@ function ScoringCard({ scoring }: { scoring?: AnalysisResult["scoring"] }) {
           <RiskPill level={scoring.risk_level} />
         </div>
 
-        <ScoreBar label="Fraud score" score={scoring.fraud_score} invert={false} />
+        <ScoreBar
+          label="Fraud score"
+          score={scoring.fraud_score}
+          riskLevel={scoring.risk_level}
+        />
 
         <button
           onClick={() => setExpanded((v) => !v)}
@@ -1033,7 +1079,7 @@ function ScoringCard({ scoring }: { scoring?: AnalysisResult["scoring"] }) {
                 key={key}
                 label={key.replace(/_/g, " ")}
                 score={val as number}
-                invert={false}
+                riskLevel={riskLevelFromScore(val as number)}
               />
             ))}
           </div>
@@ -1077,7 +1123,7 @@ function ForensicsCard({ forensics }: { forensics?: AnalysisResult["forensics"] 
         <ScoreBar
           label="Forensic risk score"
           score={forensics.forensic_score}
-          invert={false}
+          riskLevel={forensics.risk_level}
         />
 
         {/* Per-layer scores with triggered badges */}
@@ -1085,31 +1131,31 @@ function ForensicsCard({ forensics }: { forensics?: AnalysisResult["forensics"] 
           <ScoreBar
             label="ELA (recompression)"
             score={forensics.ela_score}
-            invert={false}
+            riskLevel={riskLevelForLayer(forensics.ela_score, ls?.ela?.triggered)}
             triggered={ls?.ela?.triggered}
           />
           <ScoreBar
             label="Font inconsistency"
             score={forensics.font_score}
-            invert={false}
+            riskLevel={riskLevelForLayer(forensics.font_score, ls?.font?.triggered)}
             triggered={ls?.font?.triggered}
           />
           <ScoreBar
             label="Noise inconsistency"
             score={forensics.noise_score}
-            invert={false}
+            riskLevel={riskLevelForLayer(forensics.noise_score, ls?.noise?.triggered)}
             triggered={ls?.noise?.triggered}
           />
           <ScoreBar
             label="Text rendering"
             score={forensics.text_region_score}
-            invert={false}
+            riskLevel={riskLevelForLayer(forensics.text_region_score, ls?.text?.triggered)}
             triggered={ls?.text?.triggered}
           />
           <ScoreBar
             label="Metadata anomaly"
             score={forensics.metadata_score}
-            invert={false}
+            riskLevel={riskLevelForLayer(forensics.metadata_score, ls?.metadata?.triggered)}
             triggered={ls?.metadata?.triggered}
           />
         </div>
@@ -1137,20 +1183,20 @@ function ForensicsCard({ forensics }: { forensics?: AnalysisResult["forensics"] 
             <ScoreBar
               label="DCT artifacts"
               score={forensics.dct_score}
-              invert={false}
+              riskLevel={riskLevelForLayer(forensics.dct_score, ls?.dct?.triggered)}
               triggered={ls?.dct?.triggered}
             />
             <ScoreBar
               label="Copy-move forgery"
               score={forensics.copy_move_score}
-              invert={false}
+              riskLevel={riskLevelForLayer(forensics.copy_move_score, ls?.copy_move?.triggered)}
               triggered={ls?.copy_move?.triggered}
             />
             {forensics.input_quality !== undefined && (
               <ScoreBar
                 label="Input quality"
                 score={forensics.input_quality}
-                invert={true}
+                meaning="positive"
               />
             )}
           </div>
@@ -1244,7 +1290,7 @@ function AiTextDetectionCard({
             <ScoreBar
               label="AI text score"
               score={artifact.ai_text_score}
-              invert={true}
+              riskLevel={artifact.risk_level}
             />
 
             <div className="flex items-center justify-between">
@@ -1272,19 +1318,17 @@ function AiTextDetectionCard({
                   <ScoreBar
                     label="Ollama judgment"
                     score={artifact.ollama_probability ?? undefined}
-                    invert={true}
                     description="Ollama's AI or template probability for this text."
                   />
                   <ScoreBar
                     label="Heuristic score"
                     score={artifact.heuristic_score}
-                    invert={true}
                     description="Local pattern score used when model judgment is weak."
                   />
                   <ScoreBar
                     label="Model confidence"
                     score={artifact.model_confidence ?? undefined}
-                    invert={false}
+                    meaning="positive"
                     description="Ollama's self-reported confidence, not precision."
                   />
                 </div>
@@ -1297,32 +1341,26 @@ function AiTextDetectionCard({
                   <ScoreBar
                     label="Perplexity risk"
                     score={artifact.perplexity_risk}
-                    invert={true}
                   />
                   <ScoreBar
                     label="Burstiness risk"
                     score={artifact.burstiness_risk}
-                    invert={true}
                   />
                   <ScoreBar
                     label="Repetition"
                     score={artifact.repetition_score}
-                    invert={true}
                   />
                   <ScoreBar
                     label="Diversity risk"
                     score={artifact.diversity_risk}
-                    invert={true}
                   />
                   <ScoreBar
                     label="Punctuation"
                     score={artifact.punctuation_score}
-                    invert={true}
                   />
                   <ScoreBar
                     label="Signal boost"
                     score={artifact.signal_boost}
-                    invert={true}
                   />
                 </div>
               )}
@@ -1360,7 +1398,7 @@ function AiTextDetectionCard({
 /*  Ensemble Fraud Risk Assessment card                               */
 /* ------------------------------------------------------------------ */
 
-function FraudScoreGauge({ score, riskLevel }: { score: number; riskLevel: string }) {
+function FraudScoreGauge({ score }: { score: number }) {
   const [animated, setAnimated] = useState(0)
 
   useEffect(() => {
@@ -1378,6 +1416,7 @@ function FraudScoreGauge({ score, riskLevel }: { score: number; riskLevel: strin
   const pct = animated
   const circumference = 2 * Math.PI * 54
   const strokeDashoffset = circumference - (pct / 100) * circumference
+  const scoreRiskLevel = riskLevelFromScore(score)
 
   const colorMap: Record<string, string> = {
     low: "stroke-emerald-500",
@@ -1391,11 +1430,14 @@ function FraudScoreGauge({ score, riskLevel }: { score: number; riskLevel: strin
     high: "text-red-500",
     critical: "text-red-700 dark:text-red-400",
   }
-  const strokeClass = colorMap[riskLevel] ?? "stroke-muted-foreground"
-  const textClass = bgColorMap[riskLevel] ?? "text-muted-foreground"
+  const strokeClass = colorMap[scoreRiskLevel] ?? "stroke-muted-foreground"
+  const textClass = bgColorMap[scoreRiskLevel] ?? "text-muted-foreground"
 
   return (
-    <div className="relative flex items-center justify-center">
+    <div
+      className="relative flex items-center justify-center"
+      aria-label={`Overall fraud risk ${Math.round(pct)}%`}
+    >
       <svg width="128" height="128" viewBox="0 0 128 128" className="-rotate-90">
         <circle
           cx="64" cy="64" r="54"
@@ -1415,6 +1457,9 @@ function FraudScoreGauge({ score, riskLevel }: { score: number; riskLevel: strin
         />
       </svg>
       <div className="absolute flex flex-col items-center">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Fraud risk
+        </span>
         <span className={`text-2xl font-bold ${textClass}`}>
           {Math.round(pct)}%
         </span>
@@ -1429,16 +1474,22 @@ function FraudRiskCard({ ensemble }: { ensemble?: AnalysisResult["ensemble_fraud
 
   const { fraud_score, risk_level, score_breakdown, amplifiers_applied, explanation } = ensemble
 
-  const icon = risk_level === "low" || risk_level === "medium" ? ShieldCheck : ShieldAlert
-  const Icon = icon
+  const normalizedRiskLevel = (risk_level || riskLevelFromScore(fraud_score)).toLowerCase()
+  const Icon = normalizedRiskLevel === "low" ? ShieldCheck : ShieldAlert
+  const iconStyles =
+    normalizedRiskLevel === "low"
+      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+      : normalizedRiskLevel === "medium"
+        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+        : "bg-red-500/10 text-red-600 dark:text-red-400"
 
   return (
     <Card className="border-0 bg-card/65 shadow-sm backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-500 lg:col-span-3">
       <CardContent className="flex flex-col gap-5 p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-              <Icon className="h-5 w-5 text-primary" />
+            <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${iconStyles}`}>
+              <Icon className="h-5 w-5" />
             </div>
             <h3 className="text-sm font-semibold text-foreground">
               Fraud Risk Assessment
@@ -1457,7 +1508,13 @@ function FraudRiskCard({ ensemble }: { ensemble?: AnalysisResult["ensemble_fraud
         )}
 
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start sm:gap-8">
-          <FraudScoreGauge score={fraud_score} riskLevel={risk_level} />
+          <div className="flex flex-col items-center gap-2">
+            <FraudScoreGauge score={fraud_score} />
+            <div className="flex w-44 items-center justify-between text-[10px] text-muted-foreground">
+              <span>Lower risk</span>
+              <span>Critical risk</span>
+            </div>
+          </div>
 
           <div className="flex flex-1 flex-col gap-2">
             <p className="text-sm leading-relaxed text-muted-foreground">{explanation}</p>
@@ -1497,7 +1554,11 @@ function FraudRiskCard({ ensemble }: { ensemble?: AnalysisResult["ensemble_fraud
                     {(info.weight * 100).toFixed(0)}% weight
                   </span>
                 </div>
-                <ScoreBar label="" score={info.score} invert={false} />
+                <ScoreBar
+                  label=""
+                  score={info.score}
+                  riskLevel={riskLevelFromScore(info.score)}
+                />
                 <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
                   {info.reason}
                 </p>
@@ -2303,7 +2364,7 @@ const [layoutlmModels, setLayoutlmModels] = useState<LayoutLMModel[]>([])
                       </div>
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-semibold text-foreground">
-                          AI anomaly analysis
+                          AI Layout analysis
                         </h3>
                         {aiStatusPill()}
                       </div>
@@ -2320,7 +2381,10 @@ const [layoutlmModels, setLayoutlmModels] = useState<LayoutLMModel[]>([])
                         {typeof result.ai.anomaly_score === "number" &&
                           result.ai.anomaly_score >= 0 &&
                           result.ai.anomaly_score <= 1 && (
-                            <AnomalyScoreBar score={result.ai.anomaly_score} />
+                            <AnomalyScoreBar
+                              score={result.ai.anomaly_score}
+                              riskLevel={result.ai.risk_level}
+                            />
                           )}
 
                         <MetricRow
@@ -2496,7 +2560,7 @@ const [layoutlmModels, setLayoutlmModels] = useState<LayoutLMModel[]>([])
               />
               <EmptyCard
                 icon={Brain}
-                title="AI anomaly analysis results will appear here."
+                title="AI Layout analysis results will appear here."
               />
               <EmptyCard
                 icon={ClipboardCheck}

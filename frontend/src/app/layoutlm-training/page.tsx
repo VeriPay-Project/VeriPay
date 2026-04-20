@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -390,9 +395,8 @@ export default function LayoutLMTrainingPage() {
               <p className="mt-2 break-all text-sm font-semibold text-foreground">
                 {selectedModel?.name ?? "N/A"}
               </p>
-              <div className="mt-3 grid gap-3 text-xs text-muted-foreground sm:grid-cols-4">
+              <div className="mt-3 grid gap-3 text-xs text-muted-foreground sm:grid-cols-3">
                 <span>Accuracy: {formatPercent(selectedModel?.metrics?.accuracy)}</span>
-                <span>F1: {formatPercent(selectedModel?.metrics?.f1_approved)}</span>
                 <span>Labels: {selectedModel?.trained_sample_count ?? "Baseline"}</span>
                 <span>Created: {formatDate(selectedModel?.created_at)}</span>
               </div>
@@ -408,7 +412,6 @@ export default function LayoutLMTrainingPage() {
                   <th className="py-2 pr-4">Approved</th>
                   <th className="py-2 pr-4">Rejected</th>
                   <th className="py-2 pr-4">Accuracy</th>
-                  <th className="py-2 pr-4">F1</th>
                   <th className="py-2 pr-4">Created</th>
                   <th className="py-2 pr-4">Status</th>
                   <th className="py-2"></th>
@@ -445,11 +448,6 @@ export default function LayoutLMTrainingPage() {
                             {model.metrics.evaluation_mode === "leave_one_out" && <span className="ml-0.5 text-[10px] text-amber-500" title="Leave-one-out CV">*</span>}
                           </span>
                         : "N/A"}
-                    </td>
-                    <td className="py-3 pr-4 text-muted-foreground">
-                      {model.metrics?.evaluation_mode === "too_small"
-                        ? "—"
-                        : formatPercent(model.metrics?.f1_approved)}
                     </td>
                     <td className="py-3 pr-4 text-muted-foreground">
                       {formatDate(model.created_at)}
