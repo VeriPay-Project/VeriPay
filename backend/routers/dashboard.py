@@ -133,6 +133,7 @@ def get_recent_invoices(
     return [
         {
             "invoice_id": invoice.invoice_id,
+            "file_name": invoice.original_filename,
             "issuer": vendor.vendor_name if vendor else None,
             "status": invoice.status,
             "confidence": analysis.confidence,
@@ -195,6 +196,7 @@ def get_all_invoices(
     for invoice, analysis, vendor, review in results:
         data.append({
             "invoice_id": invoice.invoice_id,
+            "file_name": invoice.original_filename,
             "issuer": vendor.vendor_name if vendor else "Unknown Vendor",
             "confidence": analysis.confidence,
             "created_at": invoice.created_at,

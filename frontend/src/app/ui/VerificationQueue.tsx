@@ -1,31 +1,56 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Button } from "@/components/ui/button"
 
-type InvoiceStatus = "Approved" | "Review" | "Escalated"
+type ReviewStatus = "Approved" | "Pending Review" | "Rejected"
 
 type Invoice = {
   invoice_id: number
-  file_path: string
-  confidence: number
+  file_name?: string | null
+  original_filename?: string | null
+  issuer?: string | null
+  confidence?: number | null
   created_at: string
+  review_status?: string | null
+  fraud_score?: number | null
+  risk_level?: string | null
 }
 
 type QueueItem = {
   issuer: string
   id: string
   time: string
-  status: "Approved" | "Review" | "Escalated"
+  status: ReviewStatus
 }
 
-const statusStyles: Record<InvoiceStatus, string> = {
+const reviewStatusStyles: Record<ReviewStatus, string> = {
   Approved:
     "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50",
-  Review:
+  "Pending Review":
     "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-50",
-  Escalated:
+  Rejected:
     "bg-red-50 text-red-700 border-red-200 hover:bg-red-50",
+}
+
+function getInvoiceLabel(inv: Invoice) {
+  return inv.file_name || inv.original_filename || inv.issuer || `INV-${inv.invoice_id}`
+}
+
+function getReviewStatus(status?: string | null): ReviewStatus {
+  if (status === "approved") {
+    return "Approved"
+  }
+
+  if (status === "rejected") {
+    return "Rejected"
+  }
+
+  return "Pending Review"
+}
+
+function isHighRisk(inv: Invoice) {
+  const riskLevel = inv.risk_level?.toLowerCase()
+  return riskLevel === "high" || (inv.fraud_score ?? inv.confidence ?? 0) >= 0.7
 }
 
 export default function VerificationQueue({
@@ -36,25 +61,31 @@ export default function VerificationQueue({
   // 🔥 Determine queue items (high anomaly invoices)
   const queueItems: QueueItem[] =
   invoices
-    ?.filter((inv) => inv.confidence >= 0.7)
+    ?.filter(isHighRisk)
     .slice(0, 3)
     .map((inv) => ({
-      issuer: inv.file_path,
+      issuer: getInvoiceLabel(inv),
       id: `INV-${inv.invoice_id}`,
       time: new Date(inv.created_at).toLocaleTimeString(),
-      status: "Escalated",
+      status: getReviewStatus(inv.review_status),
     })) ?? []
 
   // 🔥 Trust distribution calculation
   const total = invoices?.length || 0
   const highRisk =
-    invoices?.filter((inv: any) => inv.confidence >= 0.7).length || 0
+    invoices?.filter(isHighRisk).length || 0
   const pending =
     invoices?.filter(
-      (inv: any) => inv.confidence >= 0.4 && inv.confidence < 0.7
+      (inv) => {
+        const score = inv.fraud_score ?? inv.confidence ?? 0
+        return !isHighRisk(inv) && score >= 0.4
+      }
     ).length || 0
   const approved =
-    invoices?.filter((inv: any) => inv.confidence < 0.4).length || 0
+    invoices?.filter((inv) => {
+      const score = inv.fraud_score ?? inv.confidence ?? 0
+      return !isHighRisk(inv) && score < 0.4
+    }).length || 0
 
   const trustData = [
     {
@@ -124,7 +155,7 @@ export default function VerificationQueue({
                 </div>
                 <Badge
                   variant="outline"
-                  className={statusStyles[item.status]}
+                  className={reviewStatusStyles[item.status]}
                 >
                   {item.status}
                 </Badge>
