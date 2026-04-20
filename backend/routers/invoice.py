@@ -40,7 +40,7 @@ from models.analysis_result import AnalysisResult
 from models.vendor import Vendor
 from models.vendor_bank_binding import VendorBankBinding
 from dependencies import get_db
-from services.analysis_service import run_ai_analysis
+from services.analysis_service import _layout_familiarity, run_ai_analysis
 from services.rules_service import run_rules_checks
 from services.semantic_extraction_service import extract_invoice_fields
 from dependencies import get_current_user
@@ -1120,8 +1120,7 @@ def get_analysis_status(
         q = db.query(AnalysisResult).filter(AnalysisResult.invoice_id == invoice_id)
         if model_id:
             q = q.filter(AnalysisResult.layoutlm_model_id == model_id)
-        else:
-            q = q.order_by(AnalysisResult.created_at.desc())
+        q = q.order_by(AnalysisResult.created_at.desc())
         analysis = q.first()
 
         if not analysis:
@@ -1138,6 +1137,31 @@ def get_analysis_status(
                 "crypto": analysis.crypto_json,
                 "semantic": analysis.semantic_json,
             }
+
+        ai_result = full.get("ai")
+        if isinstance(ai_result, dict):
+            ai_result = dict(ai_result)
+            if (
+                ai_result.get("model_type") == "layoutlmv3_supervised_sklearn"
+                and not ai_result.get("layout_familiarity")
+            ):
+                try:
+                    distance_z_score = float(ai_result.get("distance_z_score"))
+                except (TypeError, ValueError):
+                    distance_z_score = None
+
+                layout_familiarity, reliability_warning = _layout_familiarity(
+                    distance_z_score
+                )
+                ai_result["layout_familiarity"] = layout_familiarity
+                ai_result["unfamiliar_layout"] = layout_familiarity == "unfamiliar"
+                ai_result["reliability_warning"] = reliability_warning
+
+                if layout_familiarity == "unfamiliar":
+                    ai_result["risk_level"] = "HIGH"
+                    ai_result["review_required"] = True
+
+            full["ai"] = ai_result
 
         semantic = (
             analysis.semantic_json

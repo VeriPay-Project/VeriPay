@@ -28,3 +28,10 @@ __v0_devtools.tsx
 __v0_jsx-dev-runtime.ts
 instrumentation-client.js
 instrumentation-client.ts
+
+# VeriPay generated runtime/training data
+backend/invoices/
+backend/uploads/rendered/
+SuperviseTraining/archive.zip
+SuperviseTraining/embedding_cache/
+SuperviseTraining/Invoices/

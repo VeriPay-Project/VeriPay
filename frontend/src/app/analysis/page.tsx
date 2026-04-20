@@ -99,6 +99,9 @@ type AnalysisResult = {
     approval_probability?: number
     rejection_probability?: number
     classifier_confidence?: number
+    layout_familiarity?: string
+    unfamiliar_layout?: boolean
+    reliability_warning?: string | null
     training_sample_count?: number
     approved_count?: number
     rejected_count?: number
@@ -1949,7 +1952,7 @@ export default function AnalysisPage() {
 
         try {
           const statusRes = await fetch(
-            `${API_BASE}/invoices/${selectedId}/analysis-status`,
+            `${API_BASE}/invoices/${selectedId}/analysis-status?model_id=${encodeURIComponent(selectedLayoutlmModel)}`,
             { credentials: "include" }
           )
 
@@ -2249,6 +2252,14 @@ export default function AnalysisPage() {
                       </p>
                     ) : (
                       <div className="divide-y divide-border/40">
+                        {result.ai.reliability_warning && (
+                          <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <p className="text-xs leading-relaxed">
+                              {result.ai.reliability_warning}
+                            </p>
+                          </div>
+                        )}
                         {typeof result.ai.anomaly_score === "number" &&
                           result.ai.anomaly_score >= 0 &&
                           result.ai.anomaly_score <= 1 && (
@@ -2303,6 +2314,12 @@ export default function AnalysisPage() {
                           label="Review required"
                           value={displayValue(result.ai.review_required)}
                         />
+                        {result.ai.layout_familiarity && (
+                          <MetricRow
+                            label="Layout familiarity"
+                            value={result.ai.layout_familiarity}
+                          />
+                        )}
                         <MetricRow
                           label="Embedding distance"
                           value={displayValue(result.ai.embedding_distance)}

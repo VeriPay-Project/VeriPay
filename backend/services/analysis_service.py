@@ -63,6 +63,22 @@ def _risk_from_rejection_probability(rejection_probability: float) -> tuple[str,
     return "LOW", False
 
 
+def _layout_familiarity(distance_z_score: float | None) -> tuple[str, str | None]:
+    if distance_z_score is None:
+        return "unknown", None
+    if distance_z_score >= 2.5:
+        return (
+            "unfamiliar",
+            "This invoice layout is far from the supervised training examples. Treat the Layout prediction as unreliable and review manually.",
+        )
+    if distance_z_score >= 1.5:
+        return (
+            "caution",
+            "This invoice layout differs from the supervised training examples. Use the Layout prediction with caution.",
+        )
+    return "familiar", None
+
+
 def _run_supervised_analysis(invoice_path: str, layoutlm_model_id: str, user_id: int) -> dict:
     from advanced.pipeline_layoutlm import process_invoice_layoutlm
     from interpretation.explanation import compute_z_score
@@ -116,12 +132,16 @@ def _run_supervised_analysis(invoice_path: str, layoutlm_model_id: str, user_id:
             risk = "HIGH"
             review_required = True
 
+    layout_familiarity, reliability_warning = _layout_familiarity(distance_z_score)
+
     explanations = [
         "Supervised LayoutLMv3 classifier used previous approve/reject reviewer labels.",
         f"The model predicted this invoice as {prediction_label.replace('_', ' ')}.",
     ]
     if embedding_distance is not None:
         explanations.append("Layout embedding distance was compared with the supervised training set.")
+    if reliability_warning:
+        explanations.append(reliability_warning)
 
     return {
         "status": "ok",
@@ -141,6 +161,9 @@ def _run_supervised_analysis(invoice_path: str, layoutlm_model_id: str, user_id:
         "anomaly_score": float(round(rejection_probability, 3)),
         "risk_level": risk,
         "review_required": review_required,
+        "layout_familiarity": layout_familiarity,
+        "unfamiliar_layout": layout_familiarity == "unfamiliar",
+        "reliability_warning": reliability_warning,
         "embedding_distance": None if embedding_distance is None else float(round(embedding_distance, 2)),
         "distance_z_score": None if distance_z_score is None else float(round(distance_z_score, 2)),
         "metrics": metadata.get("metrics"),

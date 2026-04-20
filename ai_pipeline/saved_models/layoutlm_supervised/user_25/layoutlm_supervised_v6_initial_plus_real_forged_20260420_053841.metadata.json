@@ -1,0 +1,78 @@
+{
+  "id": "layoutlm_supervised_v6_initial_plus_real_forged_20260420_053841",
+  "name": "LayoutLMv3 v6_initial_plus_real_forged",
+  "model_type": "layoutlmv3_supervised_sklearn",
+  "algorithm": "StandardScaler + LogisticRegression",
+  "layout_model": "microsoft/layoutlmv3-base",
+  "label_mapping": {
+    "rejected": 0,
+    "approved": 1
+  },
+  "positive_label": "approved",
+  "negative_label": "rejected",
+  "label_source": "folder_real_forged_ground_truth,initial_models_weighted_vote",
+  "pseudo_rule_version": "v6_initial_plus_real_forged",
+  "production_ready": false,
+  "trained_sample_count": 1126,
+  "approved_count": 659,
+  "rejected_count": 467,
+  "iterations": 1000,
+  "epochs": 5,
+  "max_iter": 5000,
+  "regularization_c": 0.3,
+  "created_at": "2026-04-20T05:38:41.015018Z",
+  "metrics": {
+    "accuracy": 0.6008,
+    "precision_approved": 0.6554,
+    "recall_approved": 0.6458,
+    "f1_approved": 0.6506,
+    "evaluation_mode": "fixed_supervise_training_test_split",
+    "train_count": 1126,
+    "test_count": 471,
+    "source_breakdown": {
+      "folder_real_forged_ground_truth": {
+        "accuracy": 0.6694,
+        "test_count": 124,
+        "confusion_matrix_rejected_approved": [
+          [
+            37,
+            25
+          ],
+          [
+            16,
+            46
+          ]
+        ]
+      },
+      "initial_models_weighted_vote": {
+        "accuracy": 0.5764,
+        "test_count": 347,
+        "confusion_matrix_rejected_approved": [
+          [
+            71,
+            67
+          ],
+          [
+            80,
+            129
+          ]
+        ]
+      }
+    },
+    "confusion_matrix_rejected_approved": [
+      [
+        108,
+        92
+      ],
+      [
+        96,
+        175
+      ]
+    ]
+  },
+  "is_baseline": false,
+  "model_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_25/layoutlm_supervised_v6_initial_plus_real_forged_20260420_053841.joblib",
+  "metadata_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_25/layoutlm_supervised_v6_initial_plus_real_forged_20260420_053841.metadata.json",
+  "manifest_path": "/app/ai_pipeline/datasets/layoutlm_supervised/user_25/layoutlm_supervised_v6_initial_plus_real_forged_20260420_053841.manifest.jsonl",
+  "sha256": "ed90c8bb1c3dd6836e5af505e6be31a676c9a6512ce104ab776e8b6b40b3b594"
+}

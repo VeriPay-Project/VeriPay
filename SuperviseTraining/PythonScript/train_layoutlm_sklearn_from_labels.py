@@ -109,6 +109,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--user-id", type=int, default=1)
     parser.add_argument("--iterations", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--regularization-c", type=float, default=1.0)
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-test-samples", type=int, default=None)
     parser.add_argument("--model-prefix", default="demo_layoutlm_supervised")
@@ -135,6 +136,7 @@ def main() -> None:
     iterations = args.iterations or int(first_row.get("recommended_iterations") or 200)
     epochs = args.epochs or int(first_row.get("recommended_epochs") or 1)
     max_iter = max(50, min(iterations * epochs, 5000))
+    regularization_c = max(0.001, float(args.regularization_c))
     cache_dir = Path(args.cache_dir).resolve()
 
     X_train, y_train = _matrix(train_rows, cache_dir)
@@ -148,6 +150,7 @@ def main() -> None:
                 LogisticRegression(
                     max_iter=max_iter,
                     class_weight="balanced",
+                    C=regularization_c,
                     random_state=42,
                 ),
             ),
@@ -170,13 +173,14 @@ def main() -> None:
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     scenario = labels_path.stem.replace("labels_", "")
     model_id = f"{args.model_prefix}_{scenario}_{timestamp}"
+    name_prefix = "Demo LayoutLMv3" if args.model_prefix.startswith("demo_") else "LayoutLMv3"
     label_sources = sorted({row.get("label_source", "") for row in train_rows})
     approved_count = int((y_train == 1).sum())
     rejected_count = int((y_train == 0).sum())
 
     metadata = {
         "id": model_id,
-        "name": f"Demo LayoutLMv3 {scenario}",
+        "name": f"{name_prefix} {scenario}",
         "model_type": "layoutlmv3_supervised_sklearn",
         "algorithm": "StandardScaler + LogisticRegression",
         "layout_model": "microsoft/layoutlmv3-base",
@@ -192,6 +196,7 @@ def main() -> None:
         "iterations": iterations,
         "epochs": epochs,
         "max_iter": max_iter,
+        "regularization_c": regularization_c,
         "created_at": datetime.utcnow().isoformat() + "Z",
         "metrics": metrics,
         "is_baseline": False,
