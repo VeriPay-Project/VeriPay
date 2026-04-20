@@ -168,46 +168,6 @@ export default function VerificationQueue({
           ))}
         </CardContent>
       </Card>
-
-      {/* Next actions */}
-      <Card
-        className="
-    border-border/60
-    shadow-sm
-    backdrop-blur-sm
-    transition-all
-    hover:shadow-md
-    motion-safe:animate-in
-    motion-safe:fade-in
-    motion-safe:slide-in-from-bottom-2
-   lg:col-span-2"
-      >
-        <CardHeader>
-          <CardTitle className="text-base font-semibold text-foreground">
-            Next actions
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <p className="text-sm text-muted-foreground">
-            Keep your verification loop tight by triaging flagged invoices and
-            generating compliance-ready summaries.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <Button>Start verification</Button>
-            <Button variant="outline">
-              Export compliance report
-            </Button>
-          </div>
-
-          {highRisk > 0 && (
-            <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/50 px-4 py-3 text-sm text-amber-800">
-              {highRisk} invoice
-              {highRisk > 1 ? "s are" : " is"} awaiting manual review
-              with anomaly scores above 0.7.
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   )
 }
