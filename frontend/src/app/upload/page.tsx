@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
+import { useToast } from "@/hooks/use-toast"
 
 import {
   UploadCloud,
@@ -34,6 +35,7 @@ type Vendor = {
 
 export default function UploadPage() {
   const router = useRouter()
+  const { toast } = useToast()
 
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [selectedVendor, setSelectedVendor] = useState<string>("")
@@ -133,13 +135,40 @@ export default function UploadPage() {
           fileName: selectedFile.name,
         })
       } else {
-        alert(`Upload failed: ${xhr.responseText}`)
+        try {
+          const err = JSON.parse(xhr.responseText)
+
+          if (xhr.status === 409) {
+            toast({
+              title: "Duplicate invoice",
+              description: err.detail || "This invoice was already uploaded.",
+              variant: "destructive",
+            })
+          } else {
+            toast({
+              title: "Upload failed",
+              description: err.detail || "Something went wrong.",
+              variant: "destructive",
+            })
+          }
+        } catch {
+          toast({
+            title: "Upload failed",
+            description: "Unexpected error occurred.",
+            variant: "destructive",
+          })
+        }
       }
     }
 
     xhr.onerror = () => {
       setIsUploading(false)
-      alert("Network error.")
+
+      toast({
+        title: "Network error",
+        description: "Failed to connect to server.",
+        variant: "destructive",
+      })
     }
 
     xhr.send(formData)

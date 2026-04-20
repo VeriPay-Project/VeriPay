@@ -24,7 +24,7 @@ type InvoiceStatus = "Approved" | "Review" | "Escalated" | "Pending"
 
 interface Invoice {
   id: string
-  issuer: string
+  file_name: string
   amount: string
   date: string
   anomalyScore: number
@@ -159,7 +159,7 @@ export default function InvoicesTable({
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Invoice</TableHead>
-              <TableHead>Issuer</TableHead>
+              <TableHead>Invoice Name</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Anomaly</TableHead>
@@ -234,7 +234,7 @@ export default function InvoicesTable({
                     </TableCell>
 
                     <TableCell className="text-foreground">
-                      {inv.issuer ?? "Unknown Vendor"}
+                      {inv.file_name ?? "Unnamed File"}
                     </TableCell>
 
                     <TableCell className="font-medium text-foreground">
