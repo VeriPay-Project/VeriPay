@@ -742,3 +742,416 @@ framer-motion's `AnimatePresence` component detects component mount/unmount and 
 
 
 *Generated for VeriPay final presentation — 2026-04-20*
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# VeriPay — Invoice Analysis Cards (Presentation Guide)
+
+> All 11 cards appear on `/app/invoices/[id]/page.tsx` after an invoice is submitted for analysis. Each card maps to a specific module in the backend analysis pipeline (`_run_analysis_pipeline()`). They load from a **single API call** to `/invoices/{id}/analysis-latest`.
+
+---
+
+## Card 1 — Detected Signals
+
+**Icon:** ScanSearch | **Position:** Full width, top of page
+
+### What it does
+Acts as the **master summary** of all suspicious signals found across the entire document — both spatial (region-level, things seen in the image) and document-level (global patterns). This is the first thing an analyst sees.
+
+### Fields
+
+| Field | Description |
+|---|---|
+| Total signal count | Total number of suspicious signals detected across all modules |
+| Spatial findings count | How many signals were tied to a specific region in the document image |
+| Document findings count | How many signals are document-wide (not tied to a specific region) |
+| Region findings list | Expandable list — each entry shows signal type, confidence %, message, and source |
+| Document findings list | Same structure — type, confidence %, message, source |
+| Invoice preview image | The actual invoice rendered with coloured bounding boxes overlaid |
+| Highlight legend | Key for what each colour means |
+
+### Highlight colour key
+
+| Colour | Signal Type |
+|---|---|
+| Red | Manipulation |
+| Amber | AI artifact |
+| Blue | Forensic anomaly |
+| Coral | Rules violation |
+
+### How it works (sequence)
+1. Every sub-module (forensics, AI, rules, etc.) emits `signals` with a bounding box.
+2. The backend aggregates all signals into `spatial_highlights` (with coordinates) and `document_highlights` (no coordinates).
+3. The frontend overlays coloured boxes on the invoice preview image using those coordinates.
+
+---
+
+## Card 2 — Fraud Risk Assessment
+
+**Icon:** ShieldAlert / ShieldCheck | **Position:** Full width, row 2
+
+### What it does
+The **single most important card**. Gives the overall fraud risk score as an animated circular gauge and explains *why* it landed at that score using a weighted breakdown.
+
+### Fields
+
+| Field | Description |
+|---|---|
+| Fraud risk gauge | Circular animated progress indicator, 0–100% |
+| Overall fraud score | Numeric percentage |
+| Risk level pill | Critical / High / Medium / Low |
+| Amplifiers applied | Alert banner showing if multiple independent signals compounded the score |
+| Explanation text | Human-readable natural language summary |
+| Score breakdown (expandable) | Each component: score (0–1), weight %, weighted contribution, reason |
+
+### Risk level thresholds
+
+| Colour | Level | Score range |
+|---|---|---|
+| Green | Low | 0–39% |
+| Amber | Medium | 40–69% |
+| Red | High | 70–89% |
+| Dark Red | Critical | 90–100% |
+
+### How it works (sequence)
+1. All sub-module scores are collected.
+2. The **ensemble model** (`ensemble_fraud_score` object) applies weights to each component.
+3. If multiple independent high-risk signals exist, **amplifiers** are triggered, boosting the final score.
+4. An LLM generates the plain-English `explanation`.
+
+---
+
+## Card 3 — Ensemble Fraud Score
+
+**Icon:** BarChart3 | **Position:** Column 1 of 3, row 3
+
+### What it does
+A more technical companion to Card 2 — shows the raw **numeric sub-scores** that feed into the ensemble model, plus the specific model version used.
+
+### Fields
+
+| Field | Description |
+|---|---|
+| Fraud score bar | Animated progress bar with risk coloring |
+| Risk level indicator | Critical / High / Medium / Low |
+| Score breakdown (expandable) | Per-component score bars with labels |
+| Model version | Version string of the ensemble model (monospace text) |
+
+### How it works (sequence)
+1. Each analysis module outputs a `score` (0–1).
+2. The ensemble model combines them using a learned weight matrix.
+3. The raw per-component scores are stored in `result.scoring.score_breakdown` and displayed here.
+
+---
+
+## Card 4 — Forensic Analysis
+
+**Icon:** Microscope | **Position:** Column 2 of 3, row 3
+
+### What it does
+Deep **image-level forensics** — detects if the invoice image has been tampered with, copy-pasted regions inserted, or if the image quality is too low to analyse reliably.
+
+### Fields (always visible)
+
+| Field | Description |
+|---|---|
+| Forensic risk score bar | Overall forensic risk, animated |
+| ELA score | Error Level Analysis — detects re-saved/recompressed regions |
+| Font inconsistency score | Flags fonts that don't match the rest of the document |
+| Noise inconsistency score | Detects unnatural noise patterns from splicing |
+| Text rendering score | Flags abnormal text rendering (e.g. pasted-in text) |
+| Metadata anomaly score | Software/device metadata vs visual content mismatch |
+| "Triggered" badge | Shown next to any layer that crossed its threshold |
+
+### Fields (advanced — expandable)
+
+| Field | Description |
+|---|---|
+| DCT artifacts score | Detects JPEG compression ghosts from partial edits |
+| Copy-move forgery score | Detects copy-pasted regions within the same document |
+| Input quality score | Quality of the image input (higher = better) |
+
+### Additional fields
+
+| Field | Description |
+|---|---|
+| Risk reasons | Bulleted list of why specific layers were triggered |
+| Triggered signals | Specific signal type + message for each trigger |
+| Quality warnings | Amber warnings if the image couldn't be fully analysed |
+| Image analysis status | Shown if image was skipped and why |
+
+### How it works (sequence)
+1. Invoice is converted to an image.
+2. Multiple forensic layers run in parallel (ELA, noise, DCT, copy-move, metadata, fonts, text regions).
+3. Each layer returns a score (0–1). Anything above its threshold is "triggered."
+4. Results are aggregated into `result.forensics`.
+
+---
+
+## Card 5 — AI Text Detection
+
+**Icon:** Sparkles | **Position:** Column 3 of 3, row 3
+
+### What it does
+Determines whether the **text on the invoice was written by a human or generated by an AI** (e.g. ChatGPT). Combines a local LLM judgment with linguistic heuristics.
+
+### Fields
+
+| Field | Description |
+|---|---|
+| AI text score bar | 0–100% probability of AI-generated text |
+| Risk level pill | Critical / High / Medium / Low |
+| Method | Detection method used (e.g. `ollama_with_heuristics`) |
+| Artifact type | What kind of artifact was detected (e.g. `generated_text`) |
+| Ollama judgment score | Score from the local LLM (Ollama) |
+| Heuristic score | Score from rule-based linguistic patterns |
+| Model confidence | How confident the model is in its own output |
+| Perplexity risk | Low perplexity = unnaturally "predictable" text = AI flag |
+| Burstiness risk | AI text has uniform sentence length; low burstiness = AI flag |
+| Repetition score | Unusually repeated phrases/structures |
+| Diversity risk | Low vocabulary diversity = AI flag |
+| Punctuation score | Punctuation patterns atypical of AI |
+| Signal boost | Composite boost from multiple correlated signals |
+| Reasoning | Full markdown explanation of the decision |
+| Signals list | Individual signals with type, message, confidence |
+
+### Skipped states
+If the invoice has too little text, or the module errored, a warning is shown with the reason instead of scores.
+
+### How it works (sequence)
+1. Text is extracted from the invoice.
+2. Linguistic heuristics compute perplexity, burstiness, repetition, diversity, punctuation.
+3. The extracted text is sent to the local **Ollama LLM** for a probability judgment.
+4. Both scores are combined into `ai_text_score`.
+
+---
+
+## Card 6 — AI Layout Analysis
+
+**Icon:** Brain | **Position:** Row 4
+
+### What it does
+A **machine-learning model** trained on historical approved/rejected invoices. It embeds the current invoice and compares it to training data to detect layout or content anomalies — even if individual signals look fine.
+
+### Fields (status = "ok")
+
+| Field | Description |
+|---|---|
+| Anomaly score bar | How different this invoice is from known-good examples |
+| Model display name | Human-readable model name |
+| Prediction | Model's prediction — `approved` or `rejected` |
+| Approval probability | Probability (0–1) the invoice matches approved patterns |
+| Rejection probability | Probability (0–1) the invoice matches rejected patterns |
+| Classifier confidence | Confidence of the classifier |
+| Risk level pill | Critical / High / Medium / Low |
+| Review required | Boolean — whether a human review is recommended |
+| Embedding distance | How far this invoice is from the training set centroid |
+| Distance z-score | Statistical outlier score; high = anomalous |
+| Training labels count | How many examples the model was trained on |
+| Explanations | Bulleted notes explaining the model's reasoning |
+
+### How it works (sequence)
+1. Invoice text/layout is encoded into a vector embedding.
+2. The embedding is compared to the training set using cosine/euclidean distance.
+3. A classifier predicts approved vs. rejected based on distance and learned patterns.
+4. Z-score is computed to quantify how much of an outlier the invoice is.
+
+---
+
+## Card 7 — Cryptographic Verification
+
+**Icon:** ShieldCheck | **Position:** Column 1 of 3, row 5
+
+### What it does
+Checks whether the PDF has a **valid digital signature** — meaning the document hasn't been modified since it was signed by the vendor.
+
+### Fields
+
+| Field | Description |
+|---|---|
+| Signature present | Yes / No — does the document have an embedded signature? |
+| Signature integrity | Valid / Invalid / Tampered |
+| Certificate trust level bar | Animated bar (0–100%) — how trusted the certificate is |
+| Certificate trust | Text label (e.g. "Trusted CA", "Self-signed", "Unknown") |
+| Signer fingerprint | Hex fingerprint of the signing certificate (truncated) |
+
+### How it works (sequence)
+1. Backend reads the PDF's embedded signature field.
+2. The signing certificate is validated against trusted certificate authorities.
+3. The document hash is re-computed and compared to the signed hash to check integrity.
+4. Results are stored in `result.crypto`.
+
+---
+
+## Card 8 — Vendor Payment Verification
+
+**Icon:** Fingerprint | **Position:** Column 2 of 3, row 5
+
+### What it does
+Verifies that the **bank account on the invoice actually belongs to the vendor** — the primary defence against payment redirection fraud (a common B2B attack).
+
+### Fields
+
+| Field | Description |
+|---|---|
+| Vendor status | e.g. "Vendor verified", "Vendor unknown" |
+| Bank account detected | Whether a bank account number was found in the invoice |
+| Verification status | Result of the internal verification check |
+| Masked account | Partial account number (e.g. `****1234`) |
+| Matched bank | Name of the bank matched |
+| Country | Country of the bank account |
+| Account type | IBAN, local account, etc. |
+| Registry lookup | Whether an external registry was queried |
+| Registry bank | Bank name returned by the external registry |
+| BIC / SWIFT | Bank identifier code from registry |
+| Registry country | Country from the external registry |
+| Registry confidence | High / Medium / Low |
+
+### How it works (sequence)
+1. OCR/LLM extracts the bank account number from the invoice text.
+2. Internal vendor records are checked — does this account match what's on file?
+3. An **external registry** (IBAN/BIC lookup) independently verifies the bank details.
+4. Both results are compared; mismatches raise a fraud flag.
+
+---
+
+## Card 9 — Semantic Extraction (AI)
+
+**Icon:** Info | **Position:** Column 3 of 3, row 5
+
+### What it does
+Shows the **structured data** that the AI extracted from the invoice — the "parsed receipt." This is what the system actually *read* from the document, and is used by rules-based checks in Card 10.
+
+### Fields
+
+| Field | Description |
+|---|---|
+| Vendor name | Extracted name of the issuing vendor |
+| Customer name | Extracted name of the bill-to party |
+| Invoice number | Extracted invoice/reference number |
+| Invoice date | Extracted date |
+| Bank name | Extracted bank name from invoice |
+| Bank account | Extracted account number |
+| Subtotal | Extracted pre-tax amount |
+| Tax | Extracted tax amount |
+| Total amount | Extracted final total |
+| Currency | Detected currency code |
+
+### How it works (sequence)
+1. Text is extracted from the invoice via OCR or PDF parsing.
+2. An LLM with a structured output schema reads the text and returns JSON.
+3. Each field is mapped to a `semantic_*` field in the result.
+
+---
+
+## Card 10 — Rule-Based Checks
+
+**Icon:** ClipboardCheck | **Position:** Full width, row 6
+
+### What it does
+Deterministic, math-based **sanity checks** on the invoice numbers — no AI, just arithmetic. Catches tampering like a line item being edited after the total was calculated.
+
+### Fields
+
+| Field | Description |
+|---|---|
+| Word count | Number of words extracted from the invoice |
+| Font count | Number of distinct fonts detected |
+| Line items | Count of individual line items found |
+| Line item sum | Sum of all line item amounts |
+| Subtotal | Extracted subtotal value |
+| Tax | Extracted tax value |
+| Total | Extracted total value |
+| Subtotal matches items | `line_item_sum ≈ subtotal`? Boolean |
+| Total matches subtotal+tax | `subtotal + tax ≈ total`? Boolean |
+| Subtotal delta | Numeric difference if mismatch |
+| Total delta | Numeric difference if mismatch |
+
+### How it works (sequence)
+1. Semantic extraction (Card 9) provides the parsed numbers.
+2. Rules engine re-computes expected values from line items.
+3. Deltas are calculated — any delta above a threshold is flagged.
+4. Font count anomaly (e.g. 5+ distinct fonts) is flagged as a potential tampering indicator.
+
+---
+
+## Card 11 — Review & Decision Panel
+
+**Icon:** Scale | **Position:** Full width, bottom of page
+
+### What it does
+The **human-in-the-loop** step. An authorised reviewer reads all the cards above and makes a final Approve / Reject decision with a written rationale.
+
+### Fields (view mode — after decision submitted)
+
+| Field | Description |
+|---|---|
+| Decision badge | Approved (green) / Rejected (red) |
+| Reviewed by | Reviewer name + timestamp |
+| Reasoning | Full text explanation written by the reviewer |
+| Update Review button | Allows re-opening for editing |
+
+### Fields (edit mode — before decision)
+
+| Field | Description |
+|---|---|
+| Approve button | Green button with CheckCircle icon |
+| Reject button | Red button with XCircle icon |
+| Description textarea | Optional free-text reasoning (multi-line) |
+| Submit Review button | Saves the decision |
+| Cancel button | Exits edit mode without saving |
+| Success / Error alerts | Feedback on save result |
+
+### How it works (sequence)
+1. Reviewer reads all 10 analysis cards.
+2. Selects Approve or Reject, optionally adds reasoning.
+3. Decision is `POST`ed to `/invoices/{id}/review` and stored with reviewer identity + timestamp.
+4. The panel switches to view mode, locking the decision (editable via "Update Review").
+
+---
+
+## Full Card Sequence at a Glance
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  1. Detected Signals          (full width)              │
+├─────────────────────────────────────────────────────────┤
+│  2. Fraud Risk Assessment     (full width)              │
+├──────────────────┬──────────────────┬───────────────────┤
+│  3. Ensemble     │  4. Forensic     │  5. AI Text       │
+│     Fraud Score  │     Analysis     │     Detection     │
+├──────────────────┴──────────────────┴───────────────────┤
+│  6. AI Layout Analysis        (spans full row)          │
+├──────────────────┬──────────────────┬───────────────────┤
+│  7. Crypto       │  8. Vendor       │  9. Semantic      │
+│     Verification │     Payment      │     Extraction    │
+├──────────────────┴──────────────────┴───────────────────┤
+│  10. Rule-Based Checks        (full width)              │
+├─────────────────────────────────────────────────────────┤
+│  11. Review & Decision Panel  (full width)              │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Data Flow (one sentence per step)
+
+1. Invoice file is uploaded → stored in DB + object storage.
+2. `_run_analysis_pipeline()` triggers all modules **in parallel** where possible.
+3. Each module writes its result to a key in the `full_result` JSON blob.
+4. The blob is stored in `analysis_record.rules_json._full_result`.
+5. Frontend calls `/invoices/{id}/analysis-latest` → gets the full blob in one request.
+6. Each card destructures its own key from the blob and renders independently.
+7. Reviewer submits decision → written to a separate `review` table linked by `invoice_id`.
+
