@@ -59,7 +59,7 @@ export default function DashboardPage() {
           Operations
         </Badge>
         <h1 className="text-3xl font-semibold tracking-tight text-balance text-foreground lg:text-4xl">
-          Invoice integrity dashboard.
+          Invoice Integrity Dashboard
         </h1>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
           Track verifications, anomaly scores, and issuer trust signals across

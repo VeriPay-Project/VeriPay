@@ -27,7 +27,7 @@ export default function AboutPage() {
         </Badge>
 
         <h1 className="text-3xl font-semibold tracking-tight text-foreground lg:text-4xl">
-          Secure invoice verification for the AI era.
+          Secure invoice verification for the AI era
         </h1>
 
         <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">

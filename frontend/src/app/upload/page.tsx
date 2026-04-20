@@ -160,7 +160,7 @@ export default function UploadPage() {
           Upload
         </Badge>
         <h1 className="text-3xl font-semibold tracking-tight text-foreground lg:text-4xl">
-          Submit an invoice for verification.
+          Submit an invoice for verification
         </h1>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
           Upload a PDF or image. VeriPay will extract metadata, compute a hash,
