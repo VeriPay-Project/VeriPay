@@ -60,14 +60,43 @@ def _build_validation_payload(
     country: str,
     normalized_account: str,
 ) -> dict:
+
+    if country == "CA":
+        try:
+            institution, transit, account = normalized_account.split("-")
+        except ValueError:
+            return {
+                "institution": "",
+                "transit": "",
+                "account": "",
+            }
+
+        return {
+            "institution": institution,
+            "transit": transit,
+            "account": account,
+        }
+
     if country == "US":
-        routing = normalized_account.split("-", 1)[0]
-        return {"routing": routing, "iban": None}
+        try:
+            routing, account = normalized_account.split("-", 1)
+        except ValueError:
+            return {
+                "routing": "",
+                "account": "",
+            }
+
+        return {
+            "routing": routing,
+            "account": account,
+        }
 
     if country == "OTHER":
-        return {"routing": None, "iban": normalized_account}
+        return {
+            "iban": normalized_account
+        }
 
-    return {"routing": None, "iban": None}
+    return {}
 
 
 def _get_vendor_or_404(db: Session, vendor_id: int) -> Vendor:
