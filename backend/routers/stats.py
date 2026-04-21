@@ -11,19 +11,16 @@ router = APIRouter(
 )
 
 @router.get("/landing")
-def landing_stats(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Returns aggregate counts scoped to the authenticated user.
-    Requires a valid session — not publicly accessible.
-    """
-    total_invoices = db.query(Invoice).filter(Invoice.user_id == user.id).count()
-    total_vendors = db.query(Vendor).filter(Vendor.user_id == user.id).count()
+def landing_stats(db: Session = Depends(get_db)):
+    total_invoices = db.query(Invoice).count()
+    total_vendors = db.query(Vendor).count()
+
+    fraud_signals = db.query(Invoice).filter(
+        Invoice.crypto_valid == False
+    ).count()
 
     return {
         "total_invoices": total_invoices,
         "total_vendors": total_vendors,
-        "fraud_signals": 0  # temporary
+        "fraud_signals": fraud_signals,
     }

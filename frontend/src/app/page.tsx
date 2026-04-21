@@ -56,7 +56,10 @@ export default function Home() {
           { credentials: "include" }
         )
 
-        if (!res.ok) return
+        if (!res.ok) {
+          console.error("Stats fetch failed")
+          return
+        }
 
         const data = await res.json()
         setStats(data)
