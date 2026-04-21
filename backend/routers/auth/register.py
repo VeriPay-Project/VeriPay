@@ -18,7 +18,7 @@ def register(
     db: Session = Depends(get_db)
 ):
     # ─────────────────────────────
-    # 🔒 BACKEND VALIDATION
+    # BACKEND VALIDATION
     # ─────────────────────────────
 
     # Email validation
@@ -65,7 +65,7 @@ def register(
         )
 
     # ─────────────────────────────
-    # 🚀 CREATE USER
+    # CREATE USER
     # ─────────────────────────────
     user = register_user(
         db,
