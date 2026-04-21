@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, aliased
-from sqlalchemy import func, desc, String
+from sqlalchemy import func, desc, String, case
 from conn_db import get_db
 from integrity.vendor_bank_service import verify_vendor_bank_account
 from models.invoice import Invoice
 from models.vendor import Vendor
 from models.analysis_result import AnalysisResult
+from models.review import InvoiceReview
 from datetime import datetime, timedelta
 from dependencies import get_current_user
 from models.user import User
@@ -23,79 +24,67 @@ def get_dashboard_stats(
     week_ago = now - timedelta(days=7)
     two_weeks_ago = now - timedelta(days=14)
 
-    # Total invoices
-    total_invoices = (
-        db.query(func.count(Invoice.invoice_id))
+    # ── Single query: invoice counts via conditional aggregation ──
+    inv_stats = (
+        db.query(
+            func.count(Invoice.invoice_id).label("total"),
+            func.count(case(
+                (Invoice.created_at >= week_ago, Invoice.invoice_id),
+            )).label("this_week"),
+            func.count(case(
+                ((Invoice.created_at >= two_weeks_ago) & (Invoice.created_at < week_ago), Invoice.invoice_id),
+            )).label("last_week"),
+        )
         .filter(Invoice.user_id == user.id)
-        .scalar()
-        or 0
+        .one()
     )
 
-    # This week invoices
-    this_week = (
-        db.query(func.count(Invoice.invoice_id))
-        .filter(
-            Invoice.user_id == user.id,
-            Invoice.created_at >= week_ago
-        )
-        .scalar()
-        or 0
-    )
-
-    # Last week invoices
-    last_week = (
-        db.query(func.count(Invoice.invoice_id))
-        .filter(
-            Invoice.user_id == user.id,
-            Invoice.created_at >= two_weeks_ago,
-            Invoice.created_at < week_ago,
-        )
-        .scalar()
-        or 0
-    )
-
+    total_invoices = inv_stats.total or 0
+    this_week = inv_stats.this_week or 0
+    last_week = inv_stats.last_week or 0
     week_trend = this_week - last_week
 
-    # High risk
-    high_risk = (
-        db.query(func.count(AnalysisResult.id))
-        .join(Invoice, Invoice.invoice_id == AnalysisResult.invoice_id)
-        .filter(
-            Invoice.user_id == user.id,
-            AnalysisResult.confidence >= 0.7)
-        .scalar()
-        or 0
-    )
-
-    # Avg confidence
-    avg_confidence = (
-        db.query(func.avg(AnalysisResult.confidence))
+    # ── Single query: analysis aggregates via conditional aggregation ──
+    analysis_stats = (
+        db.query(
+            func.count(AnalysisResult.id).label("total_analyses"),
+            func.count(case(
+                (AnalysisResult.confidence >= 0.7, AnalysisResult.id),
+            )).label("high_risk"),
+            func.count(case(
+                (AnalysisResult.confidence < 0.4, AnalysisResult.id),
+            )).label("trusted"),
+            func.avg(AnalysisResult.confidence).label("avg_conf"),
+        )
         .join(Invoice, Invoice.invoice_id == AnalysisResult.invoice_id)
         .filter(Invoice.user_id == user.id)
-        .scalar()
-        or 0
+        .one()
     )
 
-    # Trusted % (confidence < 0.4)
-    total_analyses = (
-        db.query(func.count(AnalysisResult.id))
-        .join(Invoice, Invoice.invoice_id == AnalysisResult.invoice_id)
-        .filter(Invoice.user_id == user.id)
-        .scalar()
-        or 1
-    )
-
-    trusted_count = (
-        db.query(func.count(AnalysisResult.id))
-        .join(Invoice, Invoice.invoice_id == AnalysisResult.invoice_id)
-        .filter(
-            Invoice.user_id == user.id,
-            AnalysisResult.confidence < 0.4)
-        .scalar()
-        or 0
-    )
-
+    high_risk = analysis_stats.high_risk or 0
+    avg_confidence = analysis_stats.avg_conf or 0
+    total_analyses = analysis_stats.total_analyses or 1
+    trusted_count = analysis_stats.trusted or 0
     trusted_percent = round((trusted_count / total_analyses) * 100)
+
+    # ── Review stats via conditional aggregation ──
+    review_stats = (
+        db.query(
+            func.count(InvoiceReview.id).label("total_reviewed"),
+            func.count(case(
+                (InvoiceReview.decision == "approved", InvoiceReview.id),
+            )).label("total_approved"),
+            func.count(case(
+                (InvoiceReview.decision == "rejected", InvoiceReview.id),
+            )).label("total_rejected"),
+        )
+        .join(Invoice, Invoice.invoice_id == InvoiceReview.invoice_id)
+        .filter(Invoice.user_id == user.id)
+        .one()
+    )
+
+    total_reviewed = review_stats.total_reviewed or 0
+    total_pending_review = total_invoices - total_reviewed
 
     return {
         "total_invoices": total_invoices,
@@ -104,6 +93,10 @@ def get_dashboard_stats(
         "high_risk": high_risk,
         "trusted_percent": trusted_percent,
         "avg_confidence": round(avg_confidence, 2),
+        "total_reviewed": total_reviewed,
+        "total_pending_review": total_pending_review,
+        "total_approved": review_stats.total_approved or 0,
+        "total_rejected": review_stats.total_rejected or 0,
     }
 
 
@@ -122,7 +115,7 @@ def get_recent_invoices(
     )
 
     results = (
-        db.query(Invoice, AnalysisResult, Vendor)
+        db.query(Invoice, AnalysisResult, Vendor, InvoiceReview)
         .outerjoin(Vendor, Invoice.vendor_id == Vendor.vendor_id)
         .join(subquery, Invoice.invoice_id == subquery.c.invoice_id)
         .join(
@@ -130,7 +123,8 @@ def get_recent_invoices(
             (AnalysisResult.invoice_id == subquery.c.invoice_id)
             & (AnalysisResult.created_at == subquery.c.latest_analysis),
         )
-        .filter(Invoice.user_id == user.id)   # 🔥 THIS IS KEY
+        .outerjoin(InvoiceReview, InvoiceReview.invoice_id == Invoice.invoice_id)
+        .filter(Invoice.user_id == user.id)
         .order_by(desc(Invoice.created_at))
         .limit(10)
         .all()
@@ -139,12 +133,16 @@ def get_recent_invoices(
     return [
         {
             "invoice_id": invoice.invoice_id,
+            "file_name": invoice.original_filename,
             "issuer": vendor.vendor_name if vendor else None,
             "status": invoice.status,
             "confidence": analysis.confidence,
             "created_at": invoice.created_at,
+            "review_status": review.decision if review else ("pending_review" if invoice.status == "analyzed" else None),
+            "fraud_score": analysis.fraud_score,
+            "risk_level": analysis.risk_level,
         }
-        for invoice, analysis, vendor in results
+        for invoice, analysis, vendor, review in results
     ]
 
 
@@ -169,7 +167,7 @@ def get_all_invoices(
     )
 
     query = (
-        db.query(Invoice, AnalysisResult, Vendor)
+        db.query(Invoice, AnalysisResult, Vendor, InvoiceReview)
         .outerjoin(Vendor, Invoice.vendor_id == Vendor.vendor_id)
         .join(subquery, Invoice.invoice_id == subquery.c.invoice_id)
         .join(
@@ -177,17 +175,16 @@ def get_all_invoices(
             (AnalysisResult.invoice_id == subquery.c.invoice_id)
             & (AnalysisResult.created_at == subquery.c.latest_analysis),
         )
+        .outerjoin(InvoiceReview, InvoiceReview.invoice_id == Invoice.invoice_id)
         .filter(Invoice.user_id == user.id)
     )
 
-    # 🔍 SEARCH (invoice_id OR vendor_name)
     if search:
         query = query.filter(
             (func.cast(Invoice.invoice_id, String).ilike(f"%{search}%")) |
             (Vendor.vendor_name.ilike(f"%{search}%"))
         )
 
-    # 📦 Pagination + ordering
     results = (
         query.order_by(desc(Invoice.created_at))
         .offset(offset)
@@ -195,25 +192,25 @@ def get_all_invoices(
         .all()
     )
 
-    # 🧾 Format response
     data = []
-    for invoice, analysis, vendor in results:
+    for invoice, analysis, vendor, review in results:
         data.append({
             "invoice_id": invoice.invoice_id,
+            "file_name": invoice.original_filename,
             "issuer": vendor.vendor_name if vendor else "Unknown Vendor",
             "confidence": analysis.confidence,
             "created_at": invoice.created_at,
+            "review_status": review.decision if review else ("pending_review" if invoice.status == "analyzed" else None),
+            "fraud_score": analysis.fraud_score,
+            "risk_level": analysis.risk_level,
         })
 
     return data
 
 
 @router.get("/invoice/{invoice_id}")
-def get_invoice_analysis(
-    invoice_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
+def get_invoice_analysis(invoice_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+
     invoice = db.query(Invoice).filter(
         Invoice.invoice_id == invoice_id,
         Invoice.user_id == user.id
@@ -232,44 +229,58 @@ def get_invoice_analysis(
     if not analysis:
         return {"detail": "No analysis found for this invoice"}
 
-    semantic = analysis.semantic_json if isinstance(
-        analysis.semantic_json, dict) else {}
+    semantic = analysis.semantic_json if isinstance(analysis.semantic_json, dict) else {}
+
+    bank_account = semantic.get("bank_account")
+    country = semantic.get("country")
+    account_type = semantic.get("account_type")
+
+    vendor_bank = (
+        verify_vendor_bank_account(
+            db=db,
+            vendor_name=semantic.get("vendor_name"),
+            bank_account=bank_account,
+            country=country,
+            account_type=account_type,
+        )
+        if semantic
+        else None
+    )
+
+    external_verification = None
+    if bank_account and account_type == "iban" and country == "OTHER":
+        external_verification = verify_iban_external(bank_account)
+
+    review = db.query(InvoiceReview).filter(
+        InvoiceReview.invoice_id == invoice_id,
+    ).first()
+
+    review_data = None
+    if review:
+        reviewer = db.query(User).filter(User.id == review.user_id).first()
+        review_data = {
+            "id": review.id,
+            "decision": review.decision,
+            "confidence": review.confidence,
+            "description": review.description,
+            "reviewer_name": reviewer.full_name if reviewer else None,
+            "reviewed_at": review.reviewed_at,
+            "updated_at": review.updated_at,
+        }
 
     return {
         "invoice_id": invoice.invoice_id,
-        "file_type": analysis.file_type or "pdf",
-
-        "crypto": analysis.crypto_json or {},
-        "ai": analysis.ai_json or {},
-        "rules": analysis.rules_json or {},
-
+        "file_type": "pdf",
+        "crypto": analysis.crypto_json,
+        "vendor_bank": vendor_bank,
+        "ai": analysis.ai_json,
+        "rules": analysis.rules_json,
+        "external_verification": external_verification,
         "semantic": semantic,
-        "semantic_vendor_name": semantic.get("vendor_name"),
-        "semantic_bank_account": semantic.get("bank_account"),
-        "semantic_bank_name": semantic.get("bank_name"),
-        "semantic_invoice_number": semantic.get("invoice_number"),
-        "semantic_total_amount": semantic.get("total_amount"),
-        "semantic_customer_name": semantic.get("customer_name"),
-        "semantic_invoice_date": semantic.get("invoice_date"),
-        "semantic_subtotal": semantic.get("subtotal"),
-        "semantic_tax": semantic.get("tax"),
-        "semantic_currency": semantic.get("currency"),
-
-        "vendor_bank": analysis.vendor_bank_json,
-        "external_verification": analysis.external_verification_json,
-
-        "forensics": analysis.forensics_json,
-        "ai_artifact": analysis.ai_artifact_json,
-        "preview": analysis.preview_json,
-
-        "highlights": analysis.highlights_json or [],
-        "spatial_highlights": analysis.spatial_highlights_json or [],
-        "document_highlights": analysis.document_highlights_json or [],
-        "highlight_summary": analysis.highlight_summary_json,
-
-        "scoring": analysis.scoring_json,
-
         "confidence": analysis.confidence,
         "prediction": analysis.prediction,
         "created_at": analysis.created_at,
+        "fraud_score": analysis.fraud_score,
+        "risk_level": analysis.risk_level,
+        "review": review_data,
     }

@@ -1,43 +1,69 @@
 # ──────────────────────────────────────────────
 # IMPORTS
 # ──────────────────────────────────────────────
-from difflib import SequenceMatcher
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
-import os
-import re
-import uuid
-
 from pydantic import ValidationError
-from sqlalchemy.orm import Session
-
-from extraction.pdf_extractor import extract_pdf_content
-from extraction.image_extractor import extract_image_content
-from integrity.integrity_service import evaluate_integrity
-from integrity.vendor_identity_service import verify_vendor_identity
-from integrity.vendor_bank_service import verify_vendor_bank_account
-from utils.hashing import compute_sha256
-from models.invoice import Invoice
-from models.analysis_result import AnalysisResult
-from models.vendor import Vendor
-from models.vendor_bank_binding import VendorBankBinding
-from dependencies import get_db
-from services.analysis_service import run_ai_analysis
-from services.rules_service import run_rules_checks
-from services.semantic_extraction_service import extract_invoice_semantic
-from dependencies import get_current_user
-from models.user import User
-from schemas.invoice import InvoiceVendorMatchRequest, InvoiceVendorMatchResponse
-from services.iban_registry_service import verify_iban_external
+from conn_db import SessionLocal
+from services.audit_service import log_event
+from services.ensemble_scorer import compute_fraud_score
+from services.ai_artifact_service import run_ai_artifact_detection
+from services.image_service import render_invoice_preview
+from services.highlight_service import build_highlights
+from services.forensics_service import run_forensics_analysis
 from services.bank_utils import (
     detect_account_type,
     hash_account,
     mask_account,
     normalize_account_by_country,
 )
-from services.forensics_service import run_forensics_analysis
-from services.highlight_service import build_highlights
-from services.image_service import render_invoice_preview
-from services.ai_artifact_service import run_ai_artifact_detection
+from services.iban_registry_service import verify_iban_external
+from schemas.invoice import InvoiceVendorMatchRequest, InvoiceVendorMatchResponse
+from models.user import User
+from dependencies import get_current_user
+from services.semantic_extraction_service import extract_invoice_fields
+from services.rules_service import run_rules_checks
+from services.analysis_service import (
+    _fallback_layout_reason,
+    _layout_consistency_level,
+    _layout_consistency_score,
+    _layout_familiarity,
+    run_ai_analysis,
+)
+from dependencies import get_db
+from models.vendor_bank_binding import VendorBankBinding
+from models.vendor import Vendor
+from models.analysis_result import AnalysisResult
+from models.invoice import Invoice
+from utils.hashing import compute_sha256
+from integrity.vendor_bank_service import verify_vendor_bank_account
+from integrity.vendor_identity_service import verify_vendor_identity
+from integrity.integrity_service import evaluate_integrity
+from extraction.image_extractor import extract_image_content
+from extraction.pdf_extractor import extract_pdf_content
+from sqlalchemy.orm import Session
+import asyncio
+from datetime import datetime
+from difflib import SequenceMatcher
+from fastapi import APIRouter, BackgroundTasks, UploadFile, File, HTTPException, Depends, Query, Request
+import io
+import logging
+import os
+import re
+import uuid
+
+import PIL.Image
+
+from limiter import limiter
+from slowapi.util import get_remote_address
+
+logger = logging.getLogger(__name__)
+
+
+def _get_user_or_ip(request: Request) -> str:
+    """Rate-limit key: user_id from session when authenticated, else IP."""
+    user_id = request.session.get("user_id")
+    if user_id:
+        return f"user:{user_id}"
+    return get_remote_address(request)
 
 
 # ──────────────────────────────────────────────
@@ -55,9 +81,46 @@ ALLOWED_MIME_TYPES = {
     "image/jpg": "image"
 }
 
+# ── Upload security constants ─────────────────────────────────────────────
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024           # 50 MB hard limit
+MAX_PDF_PAGES = 200
+# Pillow safe pixel limit — prevents decompression bomb attacks
+PIL.Image.MAX_IMAGE_PIXELS = 178_956_970
+
+# Magic bytes signatures
+_MAGIC = {
+    "application/pdf": [(0, b"%PDF")],
+    "image/png":       [(0, b"\x89PNG\r\n\x1a\n")],
+    "image/jpeg":      [(0, b"\xff\xd8\xff")],
+    "image/jpg":       [(0, b"\xff\xd8\xff")],
+}
+
+
+def _check_magic_bytes(content_type: str, data: bytes) -> bool:
+    """Return True if file header matches expected magic bytes."""
+    signatures = _MAGIC.get(content_type, [])
+    for offset, magic in signatures:
+        if data[offset:offset + len(magic)] == magic:
+            return True
+    return False
+
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INVOICE_DIR = os.path.join(BASE_DIR, "invoices")
 os.makedirs(INVOICE_DIR, exist_ok=True)
+
+
+def _new_invoice_storage_path(user_id: int, extension: str) -> str:
+    now = datetime.utcnow()
+    storage_dir = os.path.join(
+        INVOICE_DIR,
+        f"user_{user_id}",
+        "incoming",
+        now.strftime("%Y"),
+        now.strftime("%m"),
+    )
+    os.makedirs(storage_dir, exist_ok=True)
+    return os.path.join(storage_dir, f"{uuid.uuid4()}{extension}")
 
 
 # ──────────────────────────────────────────────
@@ -65,12 +128,12 @@ os.makedirs(INVOICE_DIR, exist_ok=True)
 # ──────────────────────────────────────────────
 
 ACCOUNT_PATTERNS = [
-    r"IBAN[:\s]*([A-Z0-9]{15,34})",
-    r"Account\s*Number[:\s]*([0-9\- ]{6,30})",
-    r"Account\s*No\.?[:\s]*([0-9\- ]{6,30})",
-    r"Account[:\s]*([0-9\- ]{6,30})",
-    r"Acct[:\s]*([0-9\- ]{6,30})",
-    r"A\/C[:\s]*([0-9\- ]{6,30})"
+    r"IBAN[:\s]*([A-Z0-9 ]{15,42})",
+    r"Account\s*Number[:\s]*([A-Z0-9\- ]{6,34})",
+    r"Account\s*No\.?[:\s]*([A-Z0-9\- ]{6,34})",
+    r"Account[:\s]*([A-Z0-9\- ]{6,34})",
+    r"Acct[:\s]*([A-Z0-9\- ]{6,34})",
+    r"A\/C[:\s]*([A-Z0-9\- ]{6,34})"
 ]
 
 
@@ -550,7 +613,9 @@ def list_invoices(user: User = Depends(get_current_user), db: Session = Depends(
 # UPLOAD INVOICE
 # ──────────────────────────────────────────────
 @router.post("/upload")
+@limiter.limit("30/hour", key_func=_get_user_or_ip)
 async def upload_invoice(
+    request: Request,
     user: User = Depends(get_current_user),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
@@ -564,9 +629,51 @@ async def upload_invoice(
     file_type = ALLOWED_MIME_TYPES[file.content_type]
     extension = os.path.splitext(file.filename)[1].lower()
 
-    contents = await file.read()
+    # ── Size limit: read at most MAX_UPLOAD_BYTES + 1 to detect oversized files
+    # without loading the entire thing into memory first.
+    contents = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum allowed size is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
+        )
     if not contents:
         raise HTTPException(status_code=400, detail="Empty file")
+
+    # ── Magic bytes validation — reject files whose content doesn't match MIME type
+    if not _check_magic_bytes(file.content_type, contents):
+        raise HTTPException(
+            status_code=400,
+            detail="File content does not match declared file type."
+        )
+
+    # ── PDF-specific checks
+    if file_type == "pdf":
+        try:
+            import PyPDF2
+            reader = PyPDF2.PdfReader(io.BytesIO(contents))
+            page_count = len(reader.pages)
+            if page_count > MAX_PDF_PAGES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"PDF has {page_count} pages. Maximum allowed is {MAX_PDF_PAGES}."
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "PDF page-count check failed for %s: %s", file.filename, exc)
+
+    # ── Image decompression bomb check via Pillow
+    if file_type == "image":
+        try:
+            img = PIL.Image.open(io.BytesIO(contents))
+            img.verify()  # raises on corrupt/bomb images (MAX_IMAGE_PIXELS already set)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image file is invalid or potentially malicious: {exc}"
+            )
 
     file_hash = compute_sha256(contents)
 
@@ -574,15 +681,24 @@ async def upload_invoice(
         raise HTTPException(
             status_code=409, detail="Duplicate invoice detected")
 
-    file_path = os.path.join(INVOICE_DIR, f"{uuid.uuid4()}{extension}")
+    file_path = _new_invoice_storage_path(user.id, extension)
     with open(file_path, "wb") as f:
         f.write(contents)
 
-    # extract once for cache/warmup
-    if file_type == "pdf":
-        extract_pdf_content(file_path)
-    else:
-        extract_image_content(file_path)
+    # ── Cache text extraction at upload time (Fix 4) ──────────────────────────
+    # Stored on the invoice row so analyze can reuse it without re-extracting.
+    upload_extracted_text = ""
+    try:
+        data = (
+            extract_pdf_content(file_path)
+            if file_type == "pdf"
+            else extract_image_content(file_path)
+        )
+        upload_extracted_text = data.get(
+            "text", "") if isinstance(data, dict) else ""
+    except Exception as exc:
+        logger.warning(
+            "Text extraction during upload failed for %s: %s", file_path, exc)
 
     crypto_raw = await evaluate_integrity(file_path=file_path, file_type=file_type)
 
@@ -609,10 +725,27 @@ async def upload_invoice(
         is_signed=crypto["signature_present"],
         crypto_valid=(crypto["signature_integrity"] == "valid"),
         signer_fingerprint=crypto_raw.get("signer_fingerprint"),
+        # cached — reused by analysis (Fix 4)
+        crypto_json=crypto,
+        # cached — reused by analysis (Fix 4)
+        extracted_text=upload_extracted_text or None,
         status="uploaded"
     )
 
     db.add(invoice)
+    db.flush()  # get invoice_id before audit log
+
+    log_event(
+        db, action="upload_invoice", user_id=user.id,
+        resource_type="invoice", resource_id=str(invoice.invoice_id),
+        details={
+            "filename": file.filename,
+            "file_hash": file_hash,
+            "file_type": file_type,
+            "signature_present": crypto.get("signature_present"),
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(invoice)
 
@@ -626,243 +759,513 @@ async def upload_invoice(
 
 
 # ──────────────────────────────────────────────
-# ANALYZE INVOICE (CORE PIPELINE)
+# ANALYSIS BACKGROUND WORKER  (Fix 1, 2, 3, 4)
+# ──────────────────────────────────────────────
+
+async def _run_analysis_pipeline(
+    invoice_id: int,
+    user_id: int,
+    layoutlm_model_id: str = "baseline_unsupervised",
+) -> None:
+    """
+    Full 16-step analysis pipeline executed as an async coroutine.
+
+    Opens its own DB session, runs every analysis step, writes results,
+    and updates invoice.status.  Catches ALL exceptions — this function
+    must never crash silently without updating the DB.
+
+    CPU-heavy steps (AI inference, forensics, image rendering) run in
+    asyncio.to_thread() so the event loop stays free.  I/O-bound steps
+    (Ollama LLM extraction) use native async via httpx.
+    """
+    db = SessionLocal()
+    try:
+        invoice = db.query(Invoice).filter(
+            Invoice.invoice_id == invoice_id,
+            Invoice.user_id == user_id,
+        ).first()
+
+        if not invoice:
+            logger.error(
+                "Background analysis: invoice %s not found.", invoice_id)
+            return
+
+        file_path = invoice.file_path
+        file_type = _infer_file_type(file_path)
+
+        # ── TEXT (Fix 4: reuse cached text from upload, avoid re-extraction) ──
+        if invoice.extracted_text is not None:
+            extracted_text = invoice.extracted_text
+            text_extraction_status = "success"
+            text_extraction_error = None
+        else:
+            extracted_text = ""
+            text_extraction_status = "success"
+            text_extraction_error = None
+            try:
+                data = (
+                    extract_pdf_content(file_path)
+                    if file_type == "pdf"
+                    else extract_image_content(file_path)
+                )
+                extracted_text = data.get(
+                    "text", "") if isinstance(data, dict) else ""
+            except Exception as exc:
+                text_extraction_status = "failed"
+                text_extraction_error = f"{type(exc).__name__}: {exc}"
+                logger.error(
+                    "Text extraction failed for invoice %s: %s", invoice_id, exc
+                )
+
+        # ── CRYPTO (Fix 4: reuse cached crypto_json from upload) ────────────
+        if invoice.crypto_json:
+            crypto = invoice.crypto_json
+            crypto_raw = crypto
+        else:
+            # Fallback: re-run (should never happen for new invoices)
+            crypto_raw = await evaluate_integrity(
+                file_path=file_path, file_type=file_type
+            )
+            vendor_obj = None
+            if crypto_raw.get("signer_fingerprint"):
+                vendor_obj = db.query(Vendor).filter(
+                    Vendor.public_key_fingerprint == crypto_raw["signer_fingerprint"]
+                ).first()
+            vendor_result = verify_vendor_identity(
+                crypto_raw["signature_integrity"],
+                crypto_raw["certificate_trust"],
+                crypto_raw.get("signer_fingerprint"),
+                vendor_obj,
+            )
+            crypto = {**crypto_raw, **vendor_result}
+
+        # ── LLM FIELD EXTRACTION (Ollama, from extracted text) ────────────────
+        semantic_fields = await extract_invoice_fields(extracted_text)
+        ai_text_ollama = semantic_fields.pop("_ai_text_detection", None)
+        llm_extraction_status = semantic_fields.get(
+            "extraction_status", "success")
+        llm_extraction_error = semantic_fields.get("extraction_error")
+        if llm_extraction_status == "failed":
+            logger.warning("LLM extraction failed for invoice %s: %s",
+                           invoice_id, llm_extraction_error)
+        regex_fields = _extract_invoice_fields_regex(extracted_text)
+        merged_fields = _merge_semantic_first(semantic_fields, regex_fields)
+
+        # ── BANK ACCOUNT ASSEMBLY ────────────────────────────────────────────
+        routing = merged_fields.get("routing_number")
+        account = merged_fields.get("account_number")
+        institution = merged_fields.get("institution_number")
+        transit = merged_fields.get("transit_number")
+
+        if institution and transit and account:
+            raw_bank_account = f"{institution}-{transit}-{account}"
+        elif institution and routing and account:
+            raw_bank_account = f"{institution}-{routing}-{account}"
+        elif routing and account:
+            raw_bank_account = f"{routing}-{account}"
+        else:
+            raw_bank_account = merged_fields.get("bank_account")
+
+        # Fix 4: single detect_account_type call (was called twice before)
+        account_type, country = detect_account_type(raw_bank_account)
+
+        if raw_bank_account:
+            value = raw_bank_account.strip()
+            valid = False
+            if country == "US":
+                valid = re.match(r"^\d{9}-\d{6,20}$", value)
+            elif country == "CA":
+                valid = re.match(r"^\d{3}-\d{5}-\d{6,20}$", value)
+            elif country == "OTHER":
+                valid = re.match(r"^[A-Z]{2}[0-9A-Z]{13,32}$", value.upper())
+            if not valid:
+                logger.warning("Invalid bank format before normalization: %s",
+                               raw_bank_account)
+
+        normalized_bank_account = normalize_account_by_country(
+            country, raw_bank_account)
+        merged_fields["bank_account"] = normalized_bank_account or raw_bank_account
+        merged_fields["account_type"] = account_type
+        merged_fields["country"] = country
+
+        external_verification = None
+        if (merged_fields.get("bank_account")
+                and account_type == "iban" and country == "OTHER"):
+            external_verification = verify_iban_external(
+                merged_fields["bank_account"])
+
+        bank_result = verify_vendor_bank_account(
+            db=db,
+            vendor_name=merged_fields.get("vendor_name"),
+            bank_account=merged_fields.get("bank_account"),
+            country=merged_fields.get("country"),
+            account_type=merged_fields.get("account_type"),
+        )
+
+        # ── PREVIEW + FORENSICS (Fix 3: CPU-heavy — run in thread pool) ──────
+        prepared_preview = await asyncio.to_thread(
+            render_invoice_preview, file_path=file_path, file_type=file_type
+        )
+        preview = (
+            {k: v for k, v in (prepared_preview or {}).items()
+             if k not in ("image_bgr", "all_pages_bgr")}
+            if prepared_preview else None
+        )
+        shared_image = prepared_preview.get(
+            "image_bgr") if prepared_preview else None
+        all_pages = prepared_preview.get(
+            "all_pages_bgr") if prepared_preview else None
+
+        forensics_result = await asyncio.to_thread(
+            run_forensics_analysis,
+            file_path=file_path, file_type=file_type, image=shared_image,
+            all_pages=all_pages,
+        )
+
+        # ── AI INFERENCE (CPU-heavy — run in thread pool) ─────────────────────
+        ai_result = await asyncio.to_thread(
+            run_ai_analysis,
+            file_path,
+            layoutlm_model_id,
+            user_id,
+            extracted_text,
+            merged_fields,
+        )
+
+        try:
+            rules_result = await asyncio.to_thread(run_rules_checks, file_path, file_type)
+        except Exception as exc:
+            rules_result = {"status": "error",
+                            "message": f"Rules analysis failed: {exc}"}
+
+        ai_artifact_result = await asyncio.to_thread(
+            run_ai_artifact_detection,
+            extracted_text,
+            ai_text_ollama,
+        )
+
+        highlights_bundle = build_highlights(
+            forensics_result=forensics_result,
+            rules_result=rules_result,
+            ai_result=ai_result,
+        )
+
+        # ── ENSEMBLE FRAUD SCORE ─────────────────────────────────────────────
+        ensemble = compute_fraud_score(
+            crypto_result=crypto,
+            bank_verification_result=bank_result,
+            forensics_result=forensics_result,
+            ai_anomaly_result=ai_result,
+            rules_result=rules_result,
+            ai_artifact_result=ai_artifact_result,
+            extraction_status=llm_extraction_status,
+        )
+
+        prediction = -1
+        confidence = 0.0
+        if ai_result.get("status") == "ok":
+            risk = str(ai_result.get("risk_level")).upper()
+            prediction = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}.get(risk, -1)
+            confidence = float(ai_result.get("anomaly_score") or 0.0)
+
+        # ── STORE RESULTS ────────────────────────────────────────────────────
+        full_result = {
+            "invoice_id": invoice_id,
+            "file_type": file_type,
+            "crypto": crypto,
+            "vendor_bank": bank_result,
+            "ai": ai_result,
+            "rules": rules_result,
+            "external_verification": external_verification,
+            "semantic": merged_fields,
+            "forensics": forensics_result,
+            "highlights": highlights_bundle["all"],
+            "spatial_highlights": highlights_bundle["spatial"],
+            "document_highlights": highlights_bundle["document"],
+            "highlight_summary": highlights_bundle["summary"],
+            "preview": preview,
+            "ai_artifact": ai_artifact_result,
+            "ensemble_fraud_score": ensemble,
+            "llm_extraction_status": llm_extraction_status,
+            "llm_extraction_error": llm_extraction_error,
+            "text_extraction_status": text_extraction_status,
+            "text_extraction_error": text_extraction_error,
+        }
+
+        analysis_record = (
+            db.query(AnalysisResult)
+            .filter(
+                AnalysisResult.invoice_id == invoice_id,
+                AnalysisResult.layoutlm_model_id == layoutlm_model_id,
+            )
+            .first()
+        )
+        if analysis_record:
+            analysis_record.prediction = prediction
+            analysis_record.confidence = confidence
+            analysis_record.model_version = ai_result.get(
+                "model_version") or ai_result.get("model_id") or layoutlm_model_id
+            analysis_record.crypto_json = crypto
+            analysis_record.ai_json = ai_result
+            analysis_record.rules_json = rules_result
+            analysis_record.semantic_json = merged_fields
+            analysis_record.fraud_score = ensemble.get("fraud_score")
+            analysis_record.risk_level = ensemble.get("risk_level")
+            analysis_record.created_at = datetime.utcnow()
+        else:
+            analysis_record = AnalysisResult(
+                invoice_id=invoice_id,
+                layoutlm_model_id=layoutlm_model_id,
+                prediction=prediction,
+                confidence=confidence,
+                model_version=ai_result.get("model_version") or ai_result.get(
+                    "model_id") or layoutlm_model_id,
+                crypto_json=crypto,
+                ai_json=ai_result,
+                rules_json=rules_result,
+                semantic_json=merged_fields,
+                fraud_score=ensemble.get("fraud_score"),
+                risk_level=ensemble.get("risk_level"),
+            )
+            db.add(analysis_record)
+        db.flush()
+
+        # Store full result on analysis record for status polling
+        analysis_record.rules_json = {
+            **(analysis_record.rules_json or {}),
+            "_full_result": full_result,
+        }
+
+        invoice.status = "analyzed"
+        invoice.analysis_error = None
+
+        log_event(
+            db, action="analyze_invoice", user_id=user_id,
+            resource_type="invoice", resource_id=str(invoice_id),
+            details={
+                "risk_level": ai_result.get("risk_level"),
+                "anomaly_score": ai_result.get("anomaly_score"),
+                "ai_status": ai_result.get("status"),
+                "layoutlm_model_id": ai_result.get("model_id") or layoutlm_model_id,
+                "layoutlm_model_type": ai_result.get("model_type"),
+                "fraud_score": ensemble.get("fraud_score"),
+                "fraud_risk_level": ensemble.get("risk_level"),
+                "llm_extraction_status": llm_extraction_status,
+                "text_extraction_status": text_extraction_status,
+            },
+        )
+        db.commit()
+        logger.info("Background analysis complete for invoice %s.", invoice_id)
+
+    except Exception as exc:
+        logger.error(
+            "Background analysis FAILED for invoice %s: %s", invoice_id, exc,
+            exc_info=True
+        )
+        try:
+            invoice = db.query(Invoice).filter(
+                Invoice.invoice_id == invoice_id
+            ).first()
+            if invoice:
+                invoice.status = "analysis_failed"
+                invoice.analysis_error = f"{type(exc).__name__}: {exc}"
+                db.commit()
+        except Exception as inner:
+            logger.error("Could not write failure status for invoice %s: %s",
+                         invoice_id, inner)
+    finally:
+        db.close()
+
+
+async def _run_analysis_background(
+    invoice_id: int,
+    user_id: int,
+    layoutlm_model_id: str = "baseline_unsupervised",
+) -> None:
+    """
+    Async wrapper for BackgroundTasks.
+    The pipeline is async: I/O-bound work (Ollama) uses native async httpx,
+    CPU-heavy work (AI inference, forensics) is dispatched via asyncio.to_thread().
+    """
+    await _run_analysis_pipeline(invoice_id, user_id, layoutlm_model_id)
+
+
+# ──────────────────────────────────────────────
+# ANALYZE INVOICE — returns immediately (Fix 1)
 # ──────────────────────────────────────────────
 @router.post("/{invoice_id}/analyze")
+@limiter.limit("15/hour", key_func=_get_user_or_ip)
 async def analyze_invoice(
+    request: Request,
     invoice_id: int,
+    background_tasks: BackgroundTasks,
+    layoutlm_model_id: str = Query(default="baseline_unsupervised"),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     invoice = db.query(Invoice).filter(
         Invoice.invoice_id == invoice_id,
-        Invoice.user_id == user.id
+        Invoice.user_id == user.id,
     ).first()
 
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    file_path = invoice.file_path
-    file_type = _infer_file_type(file_path)
+    if invoice.status == "analyzing":
+        return {"status": "analyzing", "invoice_id": invoice_id,
+                "message": "Analysis already in progress."}
 
-    # ── TEXT EXTRACTION ──
-    extracted_text = ""
-    try:
-        data = (
-            extract_pdf_content(file_path)
-            if file_type == "pdf"
-            else extract_image_content(file_path)
-        )
-        extracted_text = data.get("text", "") if isinstance(data, dict) else ""
-    except Exception:
-        pass
-
-    # ── CRYPTO ──
-    crypto_raw = await evaluate_integrity(file_path=file_path, file_type=file_type)
-
-    vendor = None
-    if crypto_raw.get("signer_fingerprint"):
-        vendor = db.query(Vendor).filter(
-            Vendor.public_key_fingerprint == crypto_raw["signer_fingerprint"]
-        ).first()
-
-    vendor_result = verify_vendor_identity(
-        crypto_raw["signature_integrity"],
-        crypto_raw["certificate_trust"],
-        crypto_raw.get("signer_fingerprint"),
-        vendor
-    )
-
-    # ── FIELD EXTRACTION ──
-    semantic_fields = extract_invoice_semantic(extracted_text)
-    regex_fields = _extract_invoice_fields_regex(extracted_text)
-    merged_fields = _merge_semantic_first(semantic_fields, regex_fields)
-
-    # ── BANK ACCOUNT ASSEMBLY ──
-    # Priority: Canadian three-part > Canadian two-part > US two-part > LLM direct
-    routing = merged_fields.get("routing_number")
-    account = merged_fields.get("account_number")
-    institution = merged_fields.get("institution_number")
-    transit = merged_fields.get("transit_number")
-
-    if institution and transit and account:
-        # Full Canadian three-part: institution-transit-account
-        raw_bank_account = f"{institution}-{transit}-{account}"
-    elif institution and routing and account:
-        # Canadian with institution + routing used as transit
-        raw_bank_account = f"{institution}-{routing}-{account}"
-    elif routing and account:
-        # US two-part: routing-account
-        raw_bank_account = f"{routing}-{account}"
-    else:
-        # Fall back to whatever LLM or IBAN regex extracted directly
-        raw_bank_account = merged_fields.get("bank_account")
-
-    print("RAW ROUTING:", routing)
-    print("RAW ACCOUNT:", account)
-    print("RAW INSTITUTION:", institution)
-    print("RAW TRANSIT:", transit)
-    print("MERGED ACCOUNT:", raw_bank_account)
-
-    account_type, country = detect_account_type(raw_bank_account)
-
-    if raw_bank_account:
-        value = raw_bank_account.strip()
-        valid = False
-
-        if country == "US":
-            valid = re.match(r"^\d{9}-\d{6,20}$", value)
-        elif country == "CA":
-            valid = re.match(r"^\d{3}-\d{5}-\d{6,20}$", value)
-        elif country == "OTHER":
-            valid = re.match(r"^[A-Z]{2}[0-9A-Z]{13,32}$", value.upper())
-
-        if not valid:
-            print("⚠️ Invalid bank format before normalization:", raw_bank_account)
-
-    account_type, country = detect_account_type(raw_bank_account)
-    normalized_bank_account = normalize_account_by_country(
-        country, raw_bank_account)
-
-    merged_fields["bank_account"] = normalized_bank_account or raw_bank_account
-    merged_fields["account_type"] = account_type
-    merged_fields["country"] = country
-
-    external_verification = None
-    if (
-        merged_fields.get("bank_account")
-        and account_type == "iban"
-        and country == "OTHER"
-    ):
-        external_verification = verify_iban_external(
-            merged_fields["bank_account"])
-
-    # ── BANK VERIFICATION ──
-    bank_result = verify_vendor_bank_account(
-        db=db,
-        vendor_name=merged_fields.get("vendor_name"),
-        bank_account=merged_fields.get("bank_account"),
-        country=merged_fields.get("country"),
-        account_type=merged_fields.get("account_type")
-    )
-
-    crypto = {**crypto_raw, **vendor_result}
-
-    # ── PREVIEW (shared image passed to forensics to avoid double render) ──
-    prepared_preview = render_invoice_preview(
-        file_path=file_path,
-        file_type=file_type,
-    )
-    preview = {
-        k: v for k, v in (prepared_preview or {}).items()
-        if k != "image_bgr"
-    } if prepared_preview else None
-    shared_image = prepared_preview.get(
-        "image_bgr") if prepared_preview else None
-
-    # ── FORENSICS ──
-    forensics_result = run_forensics_analysis(
-        file_path=file_path,
-        file_type=file_type,
-        image=shared_image,
-    )
-
-    # ── AI + RULES ──
-    if file_type == "pdf":
-        ai_result = run_ai_analysis(file_path)
-    else:
-        ai_result = {
-            "status": "skipped",
-            "message": "AI anomaly analysis is currently limited to PDF uploads.",
-        }
-
-    try:
-        rules_result = run_rules_checks(file_path, file_type)
-    except Exception as exc:
-        rules_result = {
-            "status": "error",
-            "message": f"Rules analysis failed: {exc}",
-        }
-
-    # ── AI ARTIFACT ──
-    ai_artifact_result = run_ai_artifact_detection(extracted_text)
-
-    # ── HIGHLIGHTS ──
-    highlights_bundle = build_highlights(
-        forensics_result=forensics_result,
-        rules_result=rules_result,
-        ai_result=ai_result,
-    )
-
-    # ── PREDICTION ──
-    prediction = -1
-    confidence = 0.0
-
-    if ai_result.get("status") == "ok":
-        risk = str(ai_result.get("risk_level")).upper()
-        prediction = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}.get(risk, -1)
-        confidence = float(ai_result.get("anomaly_score") or 0.0)
-
-    # ── STORE ──
-    analysis = AnalysisResult(
-        invoice_id=invoice.invoice_id,
-        prediction=prediction,
-        confidence=confidence,
-        model_version="layoutlmv3-isolation-forest",
-        file_type=file_type,
-
-        crypto_json=crypto,
-        ai_json=ai_result,
-        rules_json=rules_result,
-        semantic_json=merged_fields,
-
-        vendor_bank_json=bank_result,
-        external_verification_json=external_verification,
-
-        forensics_json=forensics_result,
-        ai_artifact_json=ai_artifact_result,
-        preview_json=preview,
-
-        highlights_json=highlights_bundle["all"],
-        spatial_highlights_json=highlights_bundle["spatial"],
-        document_highlights_json=highlights_bundle["document"],
-        highlight_summary_json=highlights_bundle["summary"],
-
-        scoring_json=None,  # replace with real scoring object if/when you compute it
-    )
-
-    db.add(analysis)
+    invoice.status = "analyzing"
+    invoice.analysis_error = None
     db.commit()
-    db.refresh(analysis)
 
-    # ── RESPONSE ──
-    return {
-        "invoice_id": invoice.invoice_id,
-        "file_type": file_type,
-        "crypto": crypto,
-        "vendor_bank": bank_result,
-        "ai": ai_result,
-        "rules": rules_result,
-        "external_verification": external_verification,
-        "semantic": merged_fields,
-        "semantic_vendor_name": merged_fields.get("vendor_name"),
-        "semantic_bank_account": merged_fields.get("bank_account"),
-        "semantic_bank_name": merged_fields.get("bank_name"),
-        "semantic_invoice_number": merged_fields.get("invoice_number"),
-        "semantic_total_amount": merged_fields.get("total_amount"),
-        "semantic_customer_name": merged_fields.get("customer_name"),
-        "semantic_invoice_date": merged_fields.get("invoice_date"),
-        "semantic_subtotal": merged_fields.get("subtotal"),
-        "semantic_tax": merged_fields.get("tax"),
-        "semantic_currency": merged_fields.get("currency"),
-        "forensics": forensics_result,
-        "highlights": highlights_bundle["all"],
-        "spatial_highlights": highlights_bundle["spatial"],
-        "document_highlights": highlights_bundle["document"],
-        "highlight_summary": highlights_bundle["summary"],
-        "preview": preview,
-        "ai_artifact": ai_artifact_result,
-    }
+    background_tasks.add_task(_run_analysis_background,
+                              invoice_id, user.id, layoutlm_model_id)
+
+    return {"status": "analyzing", "invoice_id": invoice_id, "layoutlm_model_id": layoutlm_model_id}
+
+
+# ──────────────────────────────────────────────
+# ANALYSIS STATUS ENDPOINT  (Fix 1)
+# ──────────────────────────────────────────────
+@router.get("/{invoice_id}/analysis-status")
+def get_analysis_status(
+    invoice_id: int,
+    model_id: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invoice = db.query(Invoice).filter(
+        Invoice.invoice_id == invoice_id,
+        Invoice.user_id == user.id,
+    ).first()
+
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    if invoice.status == "analyzing":
+        return {"status": "analyzing", "invoice_id": invoice_id}
+
+    if invoice.status == "analysis_failed":
+        return {
+            "status": "analysis_failed",
+            "invoice_id": invoice_id,
+            "error": invoice.analysis_error,
+        }
+
+    if invoice.status in ("analyzed", "reviewed"):
+        q = db.query(AnalysisResult).filter(
+            AnalysisResult.invoice_id == invoice_id)
+        if model_id:
+            q = q.filter(AnalysisResult.layoutlm_model_id == model_id)
+        q = q.order_by(AnalysisResult.created_at.desc())
+        analysis = q.first()
+
+        if not analysis:
+            # model-specific result not found yet
+            return {"status": "not_analyzed_with_model", "invoice_id": invoice_id}
+
+        if analysis.rules_json and "_full_result" in analysis.rules_json:
+            full = dict(analysis.rules_json["_full_result"])
+        else:
+            full = {
+                "invoice_id": invoice_id,
+                "ai": analysis.ai_json,
+                "rules": analysis.rules_json,
+                "crypto": analysis.crypto_json,
+                "semantic": analysis.semantic_json,
+            }
+
+        ai_result = full.get("ai")
+        if isinstance(ai_result, dict):
+            ai_result = dict(ai_result)
+            if ai_result.get("model_type") == "layoutlmv3_supervised_sklearn":
+                try:
+                    distance_z_score = float(ai_result.get("distance_z_score"))
+                except (TypeError, ValueError):
+                    distance_z_score = None
+
+                layout_familiarity = ai_result.get("layout_familiarity")
+                if not layout_familiarity:
+                    layout_familiarity, reliability_warning = _layout_familiarity(
+                        distance_z_score
+                    )
+                    ai_result["layout_familiarity"] = layout_familiarity
+                    ai_result["unfamiliar_layout"] = layout_familiarity == "unfamiliar"
+                    ai_result["reliability_warning"] = reliability_warning
+
+                    if layout_familiarity == "unfamiliar":
+                        ai_result["risk_level"] = "HIGH"
+                        ai_result["review_required"] = True
+
+                if "layout_consistency_score" not in ai_result:
+                    consistency_score = _layout_consistency_score(distance_z_score)
+                    ai_result["layout_consistency_score"] = (
+                        None
+                        if consistency_score is None
+                        else float(round(consistency_score, 3))
+                    )
+                    ai_result["layout_consistency_level"] = _layout_consistency_level(
+                        consistency_score
+                    )
+
+                if not ai_result.get("layout_consistency_reason"):
+                    semantic_for_reason = (
+                        analysis.semantic_json
+                        if isinstance(analysis.semantic_json, dict)
+                        else full.get("semantic")
+                        if isinstance(full.get("semantic"), dict)
+                        else None
+                    )
+                    ai_result["layout_consistency_reason"] = _fallback_layout_reason(
+                        prediction_label=str(ai_result.get("prediction_label") or "unknown"),
+                        approval_probability=float(ai_result.get("approval_probability") or 0.0),
+                        rejection_probability=float(ai_result.get("rejection_probability") or 0.0),
+                        layout_consistency_score=ai_result.get("layout_consistency_score"),
+                        layout_familiarity=str(
+                            ai_result.get("layout_familiarity") or "unknown"
+                        ),
+                        distance_z_score=distance_z_score,
+                        semantic_fields=semantic_for_reason,
+                        extracted_text=invoice.extracted_text,
+                    )
+                    ai_result["layout_reason_source"] = "local_fallback"
+
+                if ai_result.get("layout_familiarity") == "unfamiliar":
+                    ai_result["risk_level"] = "HIGH"
+                    ai_result["review_required"] = True
+
+            full["ai"] = ai_result
+
+        semantic = (
+            analysis.semantic_json
+            if isinstance(analysis.semantic_json, dict)
+            else full.get("semantic")
+            if isinstance(full.get("semantic"), dict)
+            else None
+        )
+        if semantic:
+            bank_account = semantic.get("bank_account")
+            country = semantic.get("country")
+            account_type = semantic.get("account_type")
+
+            full["semantic"] = semantic
+            full["vendor_bank"] = verify_vendor_bank_account(
+                db=db,
+                vendor_name=semantic.get("vendor_name"),
+                bank_account=bank_account,
+                country=country,
+                account_type=account_type,
+            )
+
+            if bank_account and account_type == "iban" and country == "OTHER":
+                full["external_verification"] = verify_iban_external(
+                    bank_account)
+
+        return {"status": "analyzed", "invoice_id": invoice_id, "result": full}
+
+    # uploaded / other statuses
+    return {"status": invoice.status, "invoice_id": invoice_id}
 
 
 @router.delete("/{invoice_id}")
@@ -879,7 +1282,59 @@ def delete_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
+    db.query(AnalysisResult).filter(
+        AnalysisResult.invoice_id == invoice.invoice_id
+    ).delete(synchronize_session=False)
+
+    file_path = invoice.file_path
     db.delete(invoice)
     db.commit()
 
+    if file_path and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except OSError as exc:
+            logger.warning(
+                "Failed to remove invoice file %s: %s", file_path, exc)
+
     return {"message": "Invoice deleted"}
+
+
+@router.get("/{invoice_id}/analysis-latest")
+def get_latest_analysis(
+    invoice_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invoice = db.query(Invoice).filter(
+        Invoice.invoice_id == invoice_id,
+        Invoice.user_id == user.id
+    ).first()
+
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    analysis = (
+        db.query(AnalysisResult)
+        .filter(AnalysisResult.invoice_id == invoice_id)
+        .order_by(AnalysisResult.created_at.desc())
+        .first()
+    )
+
+    if not analysis:
+        return {"detail": "No analysis found"}
+
+    # ✅ USE YOUR EXISTING FULL RESULT (THIS IS THE KEY)
+    if analysis.rules_json and "_full_result" in analysis.rules_json:
+        return analysis.rules_json["_full_result"]
+
+    # fallback (should rarely happen)
+    return {
+        "invoice_id": invoice_id,
+        "crypto": analysis.crypto_json,
+        "ai": analysis.ai_json,
+        "rules": analysis.rules_json,
+        "semantic": analysis.semantic_json,
+        "fraud_score": analysis.fraud_score,
+        "risk_level": analysis.risk_level,
+    }

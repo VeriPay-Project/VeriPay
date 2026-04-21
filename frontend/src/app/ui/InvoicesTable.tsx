@@ -20,26 +20,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 
-type InvoiceStatus = "Approved" | "Review" | "Escalated" | "Pending"
-
 interface Invoice {
-  id: string
-  issuer: string
-  amount: string
-  date: string
-  anomalyScore: number
-  status: InvoiceStatus
+  invoice_id: number
+  file_name?: string | null
+  original_filename?: string | null
+  confidence?: number | null
+  created_at: string
+  review_status?: string | null
 }
 
-const statusStyles: Record<InvoiceStatus, string> = {
-  Approved:
-    "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50",
-  Review:
-    "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-50",
-  Escalated:
-    "bg-red-50 text-red-700 border-red-200 hover:bg-red-50",
-  Pending:
-    "bg-muted text-muted-foreground border-border hover:bg-muted",
+const REVIEW_BADGE_STYLES: Record<string, { label: string; className: string }> = {
+  approved: { label: "Approved", className: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30" },
+  rejected: { label: "Rejected", className: "bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30" },
+  pending_review: { label: "Pending Review", className: "bg-muted text-muted-foreground border-border" },
 }
 
 function AnomalyDot({ score }: { score: number }) {
@@ -68,14 +61,18 @@ function formatDate(dateString: string) {
   })
 }
 
+function getInvoiceFileName(inv: Invoice) {
+  return inv.file_name || inv.original_filename || "Unnamed File"
+}
+
 export default function InvoicesTable({
   invoices,
   setInvoices,
   showViewAll = false,
   allowDelete = false,
 }: {
-  invoices: any[]
-  setInvoices?: React.Dispatch<React.SetStateAction<any[]>>
+  invoices: Invoice[]
+  setInvoices?: React.Dispatch<React.SetStateAction<Invoice[]>>
   showViewAll?: boolean
   allowDelete?: boolean
 }) {
@@ -83,6 +80,12 @@ export default function InvoicesTable({
   const router = useRouter()
 
   const [deletingIds, setDeletingIds] = useState<number[]>([])
+  const [reviewFilter, setReviewFilter] = useState<string>("")
+  const columnCount = allowDelete ? 6 : 5
+
+  const filteredInvoices = reviewFilter
+    ? invoices.filter((inv) => (inv.review_status ?? "") === reviewFilter)
+    : invoices
 
   const handleDelete = async (e: React.MouseEvent, id: number) => {
     e.stopPropagation()
@@ -126,22 +129,38 @@ export default function InvoicesTable({
         </CardTitle>
       </CardHeader>
       <CardContent className="px-0">
+        <div className="flex flex-wrap gap-1.5 px-6 pb-3">
+          {[
+            { value: "", label: "All" },
+            ...Object.entries(REVIEW_BADGE_STYLES).map(([value, { label }]) => ({ value, label })),
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setReviewFilter(opt.value)}
+              className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium transition-all ${reviewFilter === opt.value
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border bg-background text-muted-foreground hover:bg-muted/50"
+                }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Invoice</TableHead>
-              <TableHead>Issuer</TableHead>
-              <TableHead>Amount</TableHead>
+              <TableHead>Invoice Name</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Anomaly</TableHead>
-              <TableHead className="text-right">Status</TableHead>
+              <TableHead>Review</TableHead>
               {allowDelete && <TableHead className="text-right"></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {invoices.length === 0 ? (
+            {filteredInvoices.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-60 text-center">
+                <TableCell colSpan={columnCount} className="h-60 text-center">
                   <div className="flex flex-col items-center justify-center gap-4">
 
                     {/* Image */}
@@ -180,14 +199,8 @@ export default function InvoicesTable({
                 </TableCell>
               </TableRow>
             ) : (
-              invoices.map((inv: any) => {
+              filteredInvoices.map((inv) => {
                 const anomalyScore = inv.confidence ?? 0
-                const status =
-                  anomalyScore >= 0.7
-                    ? "Escalated"
-                    : anomalyScore >= 0.4
-                      ? "Review"
-                      : "Approved"
 
                 return (
                   <TableRow
@@ -204,11 +217,7 @@ export default function InvoicesTable({
                     </TableCell>
 
                     <TableCell className="text-foreground">
-                      {inv.issuer ?? "Unknown Vendor"}
-                    </TableCell>
-
-                    <TableCell className="font-medium text-foreground">
-                      --
+                      {getInvoiceFileName(inv)}
                     </TableCell>
 
                     <TableCell className="text-muted-foreground">
@@ -219,14 +228,17 @@ export default function InvoicesTable({
                       <AnomalyDot score={anomalyScore} />
                     </TableCell>
 
-                    <TableCell className="text-right">
-                      <Badge
-                        variant="outline"
-                        className={statusStyles[status as InvoiceStatus]}
-                      >
-                        {status}
-                      </Badge>
+                    <TableCell>
+                      {inv.review_status && REVIEW_BADGE_STYLES[inv.review_status] ? (
+                        <Badge
+                          variant="outline"
+                          className={REVIEW_BADGE_STYLES[inv.review_status].className}
+                        >
+                          {REVIEW_BADGE_STYLES[inv.review_status].label}
+                        </Badge>
+                      ) : null}
                     </TableCell>
+
                     {allowDelete && (
                       <TableCell className="text-right">
                         <button

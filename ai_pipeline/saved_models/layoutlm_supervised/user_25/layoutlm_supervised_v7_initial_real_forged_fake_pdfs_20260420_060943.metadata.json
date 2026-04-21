@@ -1,0 +1,157 @@
+{
+  "id": "layoutlm_supervised_v7_initial_real_forged_fake_pdfs_20260420_060943",
+  "name": "LayoutLMv3 v7_initial_real_forged_fake_pdfs",
+  "model_type": "layoutlmv3_supervised_sklearn",
+  "algorithm": "StandardScaler + LogisticRegression",
+  "layout_model": "microsoft/layoutlmv3-base",
+  "label_mapping": {
+    "rejected": 0,
+    "approved": 1
+  },
+  "positive_label": "approved",
+  "negative_label": "rejected",
+  "label_source": "fake_invoice_pdf_ground_truth,folder_real_forged_ground_truth,initial_models_weighted_vote",
+  "pseudo_rule_version": "v7_initial_real_forged_fake_pdfs",
+  "production_ready": false,
+  "trained_sample_count": 1379,
+  "approved_count": 659,
+  "rejected_count": 720,
+  "iterations": 1200,
+  "epochs": 5,
+  "max_iter": 5000,
+  "regularization_c": 0.2,
+  "created_at": "2026-04-20T06:09:43.857996Z",
+  "metrics": {
+    "accuracy": 0.6685,
+    "precision_approved": 0.6632,
+    "recall_approved": 0.7048,
+    "f1_approved": 0.6834,
+    "evaluation_mode": "fixed_supervise_training_test_split",
+    "train_count": 1379,
+    "test_count": 534,
+    "confusion_matrix_rejected_approved": [
+      [
+        166,
+        97
+      ],
+      [
+        80,
+        191
+      ]
+    ],
+    "precision_rejected": 0.6748,
+    "recall_rejected": 0.6312,
+    "f1_rejected": 0.6523,
+    "source_breakdown": {
+      "fake_invoice_pdf_ground_truth": {
+        "accuracy": 1.0,
+        "test_count": 63,
+        "confusion_matrix_rejected_approved": [
+          [
+            63,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ]
+      },
+      "folder_real_forged_ground_truth": {
+        "accuracy": 0.621,
+        "test_count": 124,
+        "confusion_matrix_rejected_approved": [
+          [
+            34,
+            28
+          ],
+          [
+            19,
+            43
+          ]
+        ]
+      },
+      "initial_models_weighted_vote": {
+        "accuracy": 0.6254,
+        "test_count": 347,
+        "confusion_matrix_rejected_approved": [
+          [
+            69,
+            69
+          ],
+          [
+            61,
+            148
+          ]
+        ]
+      }
+    },
+    "model6_comparison_on_same_test": {
+      "accuracy": 0.5787,
+      "confusion_matrix_rejected_approved": [
+        [
+          134,
+          129
+        ],
+        [
+          96,
+          175
+        ]
+      ],
+      "precision_rejected": 0.5826,
+      "recall_rejected": 0.5095,
+      "f1_rejected": 0.5436,
+      "precision_approved": 0.5757,
+      "recall_approved": 0.6458,
+      "source_breakdown": {
+        "fake_invoice_pdf_ground_truth": {
+          "accuracy": 0.4127,
+          "test_count": 63,
+          "confusion_matrix_rejected_approved": [
+            [
+              26,
+              37
+            ],
+            [
+              0,
+              0
+            ]
+          ]
+        },
+        "folder_real_forged_ground_truth": {
+          "accuracy": 0.6694,
+          "test_count": 124,
+          "confusion_matrix_rejected_approved": [
+            [
+              37,
+              25
+            ],
+            [
+              16,
+              46
+            ]
+          ]
+        },
+        "initial_models_weighted_vote": {
+          "accuracy": 0.5764,
+          "test_count": 347,
+          "confusion_matrix_rejected_approved": [
+            [
+              71,
+              67
+            ],
+            [
+              80,
+              129
+            ]
+          ]
+        }
+      }
+    }
+  },
+  "is_baseline": false,
+  "model_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_25/layoutlm_supervised_v7_initial_real_forged_fake_pdfs_20260420_060943.joblib",
+  "metadata_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_25/layoutlm_supervised_v7_initial_real_forged_fake_pdfs_20260420_060943.metadata.json",
+  "manifest_path": "/app/ai_pipeline/datasets/layoutlm_supervised/user_25/layoutlm_supervised_v7_initial_real_forged_fake_pdfs_20260420_060943.manifest.jsonl",
+  "sha256": "8b195cec6ed4a4acb45bfc3ef0ba551e9505ba5c077910e6cee2b6fa9ee1fa6c"
+}

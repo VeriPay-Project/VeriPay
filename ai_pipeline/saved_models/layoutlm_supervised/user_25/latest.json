@@ -1,0 +1,5 @@
+{
+  "id": "layoutlm_supervised_v7_initial_real_forged_fake_pdfs_20260420_060943",
+  "model_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_25/layoutlm_supervised_v7_initial_real_forged_fake_pdfs_20260420_060943.joblib",
+  "metadata_path": "/app/ai_pipeline/saved_models/layoutlm_supervised/user_25/layoutlm_supervised_v7_initial_real_forged_fake_pdfs_20260420_060943.metadata.json"
+}

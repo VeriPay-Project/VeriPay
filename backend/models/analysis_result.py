@@ -1,7 +1,5 @@
-from sqlalchemy import Column, Integer, Float, String, DateTime, ForeignKey
-from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import JSONB
-
+from sqlalchemy import Column, Integer, DateTime, ForeignKey, JSON, String, Float
+from datetime import datetime
 from conn_db import Base
 
 
@@ -9,31 +7,17 @@ class AnalysisResult(Base):
     __tablename__ = "analysis_results"
 
     id = Column(Integer, primary_key=True, index=True)
-    invoice_id = Column(Integer, ForeignKey("invoices.invoice_id"), nullable=False, index=True)
+    invoice_id = Column(Integer, ForeignKey("invoices.invoice_id"), index=True, nullable=False)
+    layoutlm_model_id = Column(String, nullable=True, index=True)
+    prediction = Column(Integer, nullable=False)
+    confidence = Column(Float, nullable=False)
+    model_version = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    crypto_json = Column(JSON, nullable=False)
+    ai_json = Column(JSON, nullable=False)
+    rules_json = Column(JSON, nullable=False)
+    semantic_json = Column(JSON, nullable=True)
 
-    prediction = Column(Integer, nullable=True)
-    confidence = Column(Float, nullable=True)
-    model_version = Column(String, nullable=True)
-
-    file_type = Column(String, nullable=True)
-
-    crypto_json = Column(JSONB, nullable=True)
-    ai_json = Column(JSONB, nullable=True)
-    rules_json = Column(JSONB, nullable=True)
-    semantic_json = Column(JSONB, nullable=True)
-
-    vendor_bank_json = Column(JSONB, nullable=True)
-    external_verification_json = Column(JSONB, nullable=True)
-
-    forensics_json = Column(JSONB, nullable=True)
-    ai_artifact_json = Column(JSONB, nullable=True)
-    preview_json = Column(JSONB, nullable=True)
-
-    highlights_json = Column(JSONB, nullable=True)
-    spatial_highlights_json = Column(JSONB, nullable=True)
-    document_highlights_json = Column(JSONB, nullable=True)
-    highlight_summary_json = Column(JSONB, nullable=True)
-
-    scoring_json = Column(JSONB, nullable=True)
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Ensemble fraud score fields
+    fraud_score = Column(Float, nullable=True)
+    risk_level = Column(String, nullable=True)

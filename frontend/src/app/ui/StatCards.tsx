@@ -9,6 +9,9 @@ import {
   AlertTriangle,
   ShieldCheck,
   Clock,
+  ClipboardCheck,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react"
 
 type Stats = {
@@ -18,9 +21,15 @@ type Stats = {
   high_risk: number
   trusted_percent: number
   avg_confidence: number
+  total_reviewed?: number
+  total_pending_review?: number
+  total_approved?: number
+  total_rejected?: number
 }
 
 export default function StatCards({ stats }: { stats: Stats }) {
+  const hasReviewStats = stats?.total_reviewed !== undefined
+
   const cards = [
     {
       label: "Invoices processed",
@@ -53,6 +62,31 @@ export default function StatCards({ stats }: { stats: Stats }) {
       trendUp: true,
       icon: Clock,
     },
+    ...(hasReviewStats
+      ? [
+          {
+            label: "Reviewed",
+            value: stats.total_reviewed ?? 0,
+            trend: `${stats.total_pending_review ?? 0} pending review`,
+            trendUp: (stats.total_pending_review ?? 0) === 0,
+            icon: ClipboardCheck,
+          },
+          {
+            label: "Approved",
+            value: stats.total_approved ?? 0,
+            trend: `${stats.total_rejected ?? 0} rejected`,
+            trendUp: (stats.total_approved ?? 0) > 0,
+            icon: CheckCircle2,
+          },
+          {
+            label: "Rejected",
+            value: stats.total_rejected ?? 0,
+            trend: `${stats.total_approved ?? 0} approved`,
+            trendUp: false,
+            icon: XCircle,
+          },
+        ]
+      : []),
   ]
 
   return (
